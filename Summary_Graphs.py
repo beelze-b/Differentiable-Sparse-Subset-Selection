@@ -3,7 +3,7 @@
 
 # Let's just get a quick sparsity overview of the methods so far.
 
-# In[428]:
+# In[1]:
 
 
 import torch
@@ -25,21 +25,21 @@ import matplotlib.pyplot as plt
 import math
 
 
-# In[429]:
+# In[2]:
 
 
 import os
 from os import listdir
 
 
-# In[430]:
+# In[3]:
 
 
 BASE_PATH_DATA = '../data/'
 #BASE_PATH_DATA = '/scratch/ns3429/sparse-subset/data/'
 
 
-# In[431]:
+# In[4]:
 
 
 n_epochs = 100
@@ -63,7 +63,7 @@ n = 28 * 28
 EPSILON = 1e-10
 
 
-# In[432]:
+# In[5]:
 
 
 cuda = True if torch.cuda.is_available() else False
@@ -73,26 +73,26 @@ Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 device = torch.device("cuda:0" if cuda else "cpu")
 
 
-# In[433]:
+# In[6]:
 
 
 print("Device")
 print(device)
 
 
-# In[ ]:
+# In[7]:
 
 
-numpy.random.seed(100)
+np.random.seed(100)
 
 
-# In[434]:
+# In[8]:
 
 
 import scipy.io as sio
 
 
-# In[435]:
+# In[9]:
 
 
 a = sio.loadmat(BASE_PATH_DATA + 'zeisel/CITEseq.mat')
@@ -115,7 +115,7 @@ a = sio.loadmat(BASE_PATH_DATA + 'zeisel/CITEseq_names.mat')
 names=[a['citeseq_names'][i][0][0] for i in range(N)]
 
 
-# In[436]:
+# In[10]:
 
 
 slices = np.random.permutation(np.arange(data.shape[0]))
@@ -128,14 +128,14 @@ train_data = Tensor(train_data).to(device)
 test_data = Tensor(test_data).to(device)
 
 
-# In[437]:
+# In[11]:
 
 
 print(train_data.std(dim = 0).mean())
 print(test_data.std(dim = 0).mean())
 
 
-# In[478]:
+# In[12]:
 
 
 def loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent):
@@ -155,7 +155,7 @@ def loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent):
     return loss_rec + 130640 * KLD
 
 
-# In[479]:
+# In[13]:
 
 
 # KLD of D(P_1||P_2) where P_i are Gaussians, assuming diagonal
@@ -170,7 +170,7 @@ def kld_joint_autoencoders(mu_1, mu_2, logvar_1, logvar_2):
     return kld.sum()
 
 
-# In[480]:
+# In[14]:
 
 
 # for joint
@@ -193,7 +193,7 @@ def loss_function_joint(x, ae_1, ae_2):
 
 # Does L1 work if we normalize after every step?
 
-# In[481]:
+# In[15]:
 
 
 # L1 VAE model we are loading
@@ -245,7 +245,7 @@ class VAE_l1_diag(nn.Module):
         return mu_x, logvar_x, mu_latent, logvar_latent
 
 
-# In[482]:
+# In[16]:
 
 
 def train_l1(df, model, optimizer, epoch):
@@ -279,7 +279,7 @@ def train_l1(df, model, optimizer, epoch):
     
 
 
-# In[483]:
+# In[17]:
 
 
 def test(df, model, epoch):
@@ -299,7 +299,7 @@ def test(df, model, epoch):
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
 
-# In[484]:
+# In[18]:
 
 
 model_l1_diag = VAE_l1_diag(500, 200, 50)
@@ -310,7 +310,7 @@ model_l1_optimizer = torch.optim.Adam(model_l1_diag.parameters(),
                                             betas = (b1,b2))
 
 
-# In[485]:
+# In[19]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -318,7 +318,7 @@ for epoch in range(1, n_epochs + 1):
         test(test_data, model_l1_diag, epoch)
 
 
-# In[486]:
+# In[20]:
 
 
 bins = [10**(-i) for i in range(10)]
@@ -327,7 +327,7 @@ bins += [10]
 np.histogram(model_l1_diag.diag.abs().clone().detach().cpu().numpy(), bins = bins)
 
 
-# In[487]:
+# In[21]:
 
 
 with torch.no_grad():
@@ -338,20 +338,20 @@ with torch.no_grad():
     test_pred[test_pred < 0.001] = 0 
 
 
-# In[488]:
+# In[22]:
 
 
 test_data[0, :]
 
 
-# In[489]:
+# In[23]:
 
 
 print(torch.sum(test_pred[0,:] != 0))
 print(torch.sum(test_data[0,:] != 0))
 
 
-# In[490]:
+# In[24]:
 
 
 with torch.no_grad():
@@ -363,7 +363,7 @@ with torch.no_grad():
 # 
 # Then try joint training VAE and Gumbel Model
 
-# In[452]:
+# In[25]:
 
 
 # Vanilla VAE model
@@ -416,7 +416,7 @@ class VAE(nn.Module):
 
 # # Pretrain VAE First
 
-# In[453]:
+# In[26]:
 
 
 pretrain_vae = VAE(500, 200, 50)
@@ -427,7 +427,7 @@ pretrain_vae_optimizer = torch.optim.Adam(pretrain_vae.parameters(),
                                             betas = (b1,b2))
 
 
-# In[454]:
+# In[27]:
 
 
 def train(df, model, optimizer, epoch):
@@ -457,7 +457,7 @@ def train(df, model, optimizer, epoch):
     
 
 
-# In[455]:
+# In[28]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -465,7 +465,7 @@ for epoch in range(1, n_epochs + 1):
         test(test_data, pretrain_vae, epoch)
 
 
-# In[456]:
+# In[29]:
 
 
 with torch.no_grad():
@@ -476,7 +476,7 @@ with torch.no_grad():
     test_pred[test_pred < 0.001] = 0 
 
 
-# In[457]:
+# In[30]:
 
 
 with torch.no_grad():
@@ -484,21 +484,21 @@ with torch.no_grad():
     print(torch.sum((test_pred - test_data[0:64, :]).abs()) / 64/500)
 
 
-# In[458]:
+# In[31]:
 
 
 print(torch.sum(test_pred[0,:] != 0))
 print(torch.sum(test_data[0,:] != 0))
 
 
-# In[459]:
+# In[32]:
 
 
 for p in pretrain_vae.parameters():
     p.requires_grad = False
 
 
-# In[460]:
+# In[33]:
 
 
 pretrain_vae.requires_grad_(False)
@@ -506,7 +506,7 @@ pretrain_vae.requires_grad_(False)
 
 # ## Train Gumbel with the Pre-Trained VAE
 
-# In[461]:
+# In[34]:
 
 
 def train_pre_trained(df, model, optimizer, epoch, pretrained_model):
@@ -538,7 +538,7 @@ def train_pre_trained(df, model, optimizer, epoch, pretrained_model):
           epoch, train_loss / len(df)))
 
 
-# In[462]:
+# In[35]:
 
 
 def gumbel_keys(w):
@@ -583,7 +583,7 @@ def sample_subset(w, k, t=0.1):
     return continuous_topk(w, k, t)
 
 
-# In[463]:
+# In[36]:
 
 
 # L1 VAE model we are loading
@@ -644,7 +644,7 @@ class VAE_Gumbel(nn.Module):
         return mu_x, logvar_x, mu_latent, logvar_latent
 
 
-# In[464]:
+# In[37]:
 
 
 vae_gumbel_with_pre = VAE_Gumbel(500, 200, 50, k = 50)
@@ -654,7 +654,7 @@ vae_gumbel_with_pre_optimizer = torch.optim.Adam(vae_gumbel_with_pre.parameters(
                                                 betas = (b1,b2))
 
 
-# In[465]:
+# In[38]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -662,7 +662,7 @@ for epoch in range(1, n_epochs + 1):
         test(test_data, vae_gumbel_with_pre, epoch)
 
 
-# In[466]:
+# In[39]:
 
 
 with torch.no_grad():
@@ -673,7 +673,7 @@ with torch.no_grad():
     test_pred[test_pred < 0.001] = 0 
 
 
-# In[467]:
+# In[40]:
 
 
 with torch.no_grad():
@@ -681,7 +681,7 @@ with torch.no_grad():
     print(torch.sum((test_pred - test_data[0:64, :]).abs()) / 64/500)
 
 
-# In[468]:
+# In[41]:
 
 
 print(torch.sum(test_pred[0,:] != 0))
@@ -690,7 +690,7 @@ print(torch.sum(test_data[0,:] != 0))
 
 # # Joint Training
 
-# In[469]:
+# In[42]:
 
 
 # model 1 should be vanilla
@@ -725,7 +725,7 @@ def train_joint(df, model1, model2, optimizer, epoch):
           epoch, train_loss / len(df)))
 
 
-# In[470]:
+# In[43]:
 
 
 def test_joint(df, model1, model2, epoch):
@@ -747,7 +747,7 @@ def test_joint(df, model1, model2, epoch):
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
 
-# In[471]:
+# In[44]:
 
 
 joint_vanilla_vae = VAE(500, 200, 50)
@@ -762,7 +762,7 @@ joint_optimizer = torch.optim.Adam(list(joint_vanilla_vae.parameters()) + list(j
                                                 betas = (b1,b2))
 
 
-# In[472]:
+# In[45]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -770,7 +770,7 @@ for epoch in range(1, n_epochs + 1):
     test_joint(test_data, joint_vanilla_vae, joint_vae_gumbel, epoch)
 
 
-# In[473]:
+# In[46]:
 
 
 with torch.no_grad():
@@ -781,7 +781,7 @@ with torch.no_grad():
     test_pred[test_pred < 0.001] = 0 
 
 
-# In[474]:
+# In[47]:
 
 
 with torch.no_grad():
@@ -789,7 +789,7 @@ with torch.no_grad():
     print(torch.sum((test_pred - test_data[0:64, :]).abs()) / 64/500)
 
 
-# In[475]:
+# In[48]:
 
 
 print(torch.sum(test_pred[0,:] != 0))
@@ -810,7 +810,7 @@ print(torch.sum(test_data[0,:] != 0))
 # 
 # ## Graph the mean activations at k = 50
 
-# In[476]:
+# In[59]:
 
 
 def graph_activations(test_data, model, title, file):
@@ -832,27 +832,27 @@ def graph_activations(test_data, model, title, file):
     plt.savefig(file)
 
 
-# In[477]:
+# In[60]:
 
 
 graph_activations(test_data, joint_vae_gumbel, 'Joint Gumbel vs Test Means', 
                   '/scratch/ns3429/sparse-subset/joint_gumbel.png')
 
 
-# In[ ]:
+# In[62]:
 
 
 graph_activations(test_data, vae_gumbel_with_pre, 'Gumbel Matching Pretrained VAE vs Test Means', 
                   '/scratch/ns3429/sparse-subset/pretrained_gumbel.png')
 
 
-# In[ ]:
+# In[61]:
 
 
 k_all = [10, 25, 50, 100, 250]
 
 
-# In[152]:
+# In[ ]:
 
 
 losses_pre = []
