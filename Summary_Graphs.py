@@ -80,6 +80,12 @@ print("Device")
 print(device)
 
 
+# In[ ]:
+
+
+numpy.random.seed(100)
+
+
 # In[434]:
 
 
@@ -129,7 +135,7 @@ print(train_data.std(dim = 0).mean())
 print(test_data.std(dim = 0).mean())
 
 
-# In[438]:
+# In[478]:
 
 
 def loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent):
@@ -149,7 +155,7 @@ def loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent):
     return loss_rec + 130640 * KLD
 
 
-# In[439]:
+# In[479]:
 
 
 # KLD of D(P_1||P_2) where P_i are Gaussians, assuming diagonal
@@ -164,7 +170,7 @@ def kld_joint_autoencoders(mu_1, mu_2, logvar_1, logvar_2):
     return kld.sum()
 
 
-# In[440]:
+# In[480]:
 
 
 # for joint
@@ -187,7 +193,7 @@ def loss_function_joint(x, ae_1, ae_2):
 
 # Does L1 work if we normalize after every step?
 
-# In[441]:
+# In[481]:
 
 
 # L1 VAE model we are loading
@@ -239,7 +245,7 @@ class VAE_l1_diag(nn.Module):
         return mu_x, logvar_x, mu_latent, logvar_latent
 
 
-# In[442]:
+# In[482]:
 
 
 def train_l1(df, model, optimizer, epoch):
@@ -273,7 +279,7 @@ def train_l1(df, model, optimizer, epoch):
     
 
 
-# In[443]:
+# In[483]:
 
 
 def test(df, model, epoch):
@@ -293,7 +299,7 @@ def test(df, model, epoch):
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
 
-# In[444]:
+# In[484]:
 
 
 model_l1_diag = VAE_l1_diag(500, 200, 50)
@@ -304,7 +310,7 @@ model_l1_optimizer = torch.optim.Adam(model_l1_diag.parameters(),
                                             betas = (b1,b2))
 
 
-# In[445]:
+# In[485]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -312,7 +318,7 @@ for epoch in range(1, n_epochs + 1):
         test(test_data, model_l1_diag, epoch)
 
 
-# In[446]:
+# In[486]:
 
 
 bins = [10**(-i) for i in range(10)]
@@ -321,7 +327,7 @@ bins += [10]
 np.histogram(model_l1_diag.diag.abs().clone().detach().cpu().numpy(), bins = bins)
 
 
-# In[447]:
+# In[487]:
 
 
 with torch.no_grad():
@@ -332,26 +338,20 @@ with torch.no_grad():
     test_pred[test_pred < 0.001] = 0 
 
 
-# In[448]:
+# In[488]:
 
 
 test_data[0, :]
 
 
-# In[449]:
+# In[489]:
 
 
 print(torch.sum(test_pred[0,:] != 0))
 print(torch.sum(test_data[0,:] != 0))
 
 
-# In[450]:
-
-
-
-
-
-# In[451]:
+# In[490]:
 
 
 with torch.no_grad():
@@ -654,7 +654,7 @@ vae_gumbel_with_pre_optimizer = torch.optim.Adam(vae_gumbel_with_pre.parameters(
                                                 betas = (b1,b2))
 
 
-# In[ ]:
+# In[465]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -662,7 +662,7 @@ for epoch in range(1, n_epochs + 1):
         test(test_data, vae_gumbel_with_pre, epoch)
 
 
-# In[ ]:
+# In[466]:
 
 
 with torch.no_grad():
@@ -673,7 +673,7 @@ with torch.no_grad():
     test_pred[test_pred < 0.001] = 0 
 
 
-# In[ ]:
+# In[467]:
 
 
 with torch.no_grad():
@@ -681,7 +681,7 @@ with torch.no_grad():
     print(torch.sum((test_pred - test_data[0:64, :]).abs()) / 64/500)
 
 
-# In[ ]:
+# In[468]:
 
 
 print(torch.sum(test_pred[0,:] != 0))
@@ -690,7 +690,7 @@ print(torch.sum(test_data[0,:] != 0))
 
 # # Joint Training
 
-# In[ ]:
+# In[469]:
 
 
 # model 1 should be vanilla
@@ -725,7 +725,7 @@ def train_joint(df, model1, model2, optimizer, epoch):
           epoch, train_loss / len(df)))
 
 
-# In[ ]:
+# In[470]:
 
 
 def test_joint(df, model1, model2, epoch):
@@ -747,7 +747,7 @@ def test_joint(df, model1, model2, epoch):
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
 
-# In[ ]:
+# In[471]:
 
 
 joint_vanilla_vae = VAE(500, 200, 50)
@@ -762,7 +762,7 @@ joint_optimizer = torch.optim.Adam(list(joint_vanilla_vae.parameters()) + list(j
                                                 betas = (b1,b2))
 
 
-# In[ ]:
+# In[472]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -770,7 +770,7 @@ for epoch in range(1, n_epochs + 1):
     test_joint(test_data, joint_vanilla_vae, joint_vae_gumbel, epoch)
 
 
-# In[ ]:
+# In[473]:
 
 
 with torch.no_grad():
@@ -781,7 +781,7 @@ with torch.no_grad():
     test_pred[test_pred < 0.001] = 0 
 
 
-# In[ ]:
+# In[474]:
 
 
 with torch.no_grad():
@@ -789,7 +789,7 @@ with torch.no_grad():
     print(torch.sum((test_pred - test_data[0:64, :]).abs()) / 64/500)
 
 
-# In[ ]:
+# In[475]:
 
 
 print(torch.sum(test_pred[0,:] != 0))
@@ -810,7 +810,7 @@ print(torch.sum(test_data[0,:] != 0))
 # 
 # ## Graph the mean activations at k = 50
 
-# In[ ]:
+# In[476]:
 
 
 def graph_activations(test_data, model, title, file):
@@ -832,7 +832,7 @@ def graph_activations(test_data, model, title, file):
     plt.savefig(file)
 
 
-# In[ ]:
+# In[477]:
 
 
 graph_activations(test_data, joint_vae_gumbel, 'Joint Gumbel vs Test Means', 
