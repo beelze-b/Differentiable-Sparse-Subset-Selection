@@ -35,8 +35,8 @@ from os import listdir
 # In[3]:
 
 
-BASE_PATH_DATA = '../data/'
-#BASE_PATH_DATA = '/scratch/ns3429/sparse-subset/data/'
+#BASE_PATH_DATA = '../data/'
+BASE_PATH_DATA = '/scratch/ns3429/sparse-subset/data/'
 
 
 # In[4]:
@@ -832,6 +832,13 @@ def graph_activations(test_data, model, title, file):
     plt.savefig(file)
 
 
+# In[ ]:
+
+
+graph_activations(test_data, model_l1_diag, 'Joint Gumbel vs Test Means', 
+                  '/scratch/ns3429/sparse-subset/vae_l1.png')
+
+
 # In[60]:
 
 
@@ -849,7 +856,7 @@ graph_activations(test_data, vae_gumbel_with_pre, 'Gumbel Matching Pretrained VA
 # In[61]:
 
 
-k_all = [10, 25, 50, 100, 250]
+k_all = [5, 10, 15, 20, 25, 30, 40, 50, 100, 250, 300, 350, 400, 450]
 
 
 # In[ ]:
@@ -863,39 +870,61 @@ losses_joint = []
 
 
 for k in k_all:
-    vae_gumbel_with_pre = VAE_Gumbel(500, 200, 50, k = k)
-    vae_gumbel_with_pre.to(device)
-    vae_gumbel_with_pre_optimizer = torch.optim.Adam(vae_gumbel_with_pre.parameters(), 
+    current_k_pre_losses = []
+    current_k_joint_losses = []
+    for trial_i in range(5):
+        print("RUNNING for K {}".format(k))
+        vae_gumbel_with_pre = VAE_Gumbel(500, 200, 50, k = k)
+        vae_gumbel_with_pre.to(device)
+        vae_gumbel_with_pre_optimizer = torch.optim.Adam(vae_gumbel_with_pre.parameters(), 
+                                                        lr=lr, 
+                                                        betas = (b1,b2))
+    
+        joint_vanilla_vae = VAE(500, 200, 50)
+        joint_vanilla_vae.to(device)
+
+        joint_vae_gumbel = VAE_Gumbel(500, 200, 50, k = k)
+        joint_vae_gumbel.to(device)
+
+
+        joint_optimizer = torch.optim.Adam(list(joint_vanilla_vae.parameters()) + 
+                                           list(joint_vae_gumbel.parameters()),
                                                 lr=lr, 
                                                 betas = (b1,b2))
     
-    joint_vanilla_vae = VAE(500, 200, 50)
-    joint_vanilla_vae.to(device)
+        for epoch in (1, n_epochs + 1):
+            train_pre_trained(train_data, vae_gumbel_with_pre, vae_gumbel_with_pre_optimizer, epoch, pretrain_vae)
+            train_joint(train_data, joint_vanilla_vae, joint_vae_gumbel, joint_optimizer, epoch)
+    
+        test_pred_pre = vae_gumbel_with_pre(test_data)[0]
+        test_pred_pre[test_pred_pre < 0.001] = 0 
+    
+        test_pred_joint = joint_vanilla_vae(test_data)[0]
+        test_pred_joint[test_pred_joint < 0.001] = 0
+    
+        with torch.no_grad():
+            mae_pre = torch.sum((test_pred_pre - test_data).abs()) / len(test_data) / 500
+            mae_joint = torch.sum((test_pred_joint - test_data).abs()) / len(test_data) / 500
+        
+        current_k_pre_losses.append(mae_pre.cpu().item())
+        current_k_joint_losses.append(mae_joint.cpu().item())
+        
+        # for freeing memory faster
+        del vae_gumbel_with_pre
+        del vae_gumbel_with_pre_optimizer
+        del joint_vanilla_vae
+        del joint_vae_gumbel
+        del joint_optimizer
+        del test_pred_pre
+        del test_pred_joint
 
-    joint_vae_gumbel = VAE_Gumbel(500, 200, 50, k = k)
-    joint_vae_gumbel.to(device)
-
-
-    joint_optimizer = torch.optim.Adam(list(joint_vanilla_vae.parameters()) + list(joint_vae_gumbel.parameters()), 
-                                                lr=lr, 
-                                                betas = (b1,b2))
+        torch.cuda.empty_cache()
+        
     
-    for epoch in (1, n_epochs + 1):
-        train_pre_trained(train_data, vae_gumbel_with_pre, vae_gumbel_with_pre_optimizer, epoch, pretrain_vae)
-        train_joint(train_data, joint_vanilla_vae, joint_vae_gumbel, joint_optimizer, epoch)
+    losses_pre.append(np.mean(current_k_pre_losses))
+    losses_joint.append(np.mean(current_k_joint_losses))
     
-    test_pred_pre = vae_gumbel_with_pre(test_data)[0]
-    test_pred_pre[test_pred_pre < 0.001] = 0 
     
-    test_pred_joint = joint_vanilla_vae(test_data)[0]
-    test_pred_joint[test_pred_joint < 0.001] = 0
-    
-    with torch.no_grad():
-        mae_pre = torch.sum((test_pred_pre - test_data).abs()) / len(test_data) / 500
-        mae_joint = torch.sum((test_pred_joint - test_data).abs()) / len(test_data) / 500
-    
-    losses_pre.append(mae_pre.cpu().item())
-    losses_joint.append(mae_joint.cpu().item())
     
 fig = plt.figure()
 plt.plot(k_all, losses_pre, label = 'Average MAE Losses with Gumbel Matching Pretrained')
