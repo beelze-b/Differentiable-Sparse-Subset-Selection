@@ -856,7 +856,9 @@ graph_activations(test_data, vae_gumbel_with_pre, 'Gumbel Matching Pretrained VA
 # In[61]:
 
 
-k_all = [5, 10, 15, 20, 25, 30, 40, 50, 100, 250, 300, 350, 400, 450]
+k_all = [5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300, 350, 325, 350, 375,
+         400, 425, 450]
+n_trials = 10
 
 
 # In[ ]:
@@ -872,8 +874,8 @@ losses_joint = []
 for k in k_all:
     current_k_pre_losses = []
     current_k_joint_losses = []
-    for trial_i in range(5):
-        print("RUNNING for K {}".format(k))
+    for trial_i in range(n_trials):
+        print("RUNNING for K {} Trial {}".format(k, trial_i))
         vae_gumbel_with_pre = VAE_Gumbel(500, 200, 50, k = k)
         vae_gumbel_with_pre.to(device)
         vae_gumbel_with_pre_optimizer = torch.optim.Adam(vae_gumbel_with_pre.parameters(), 
