@@ -45,7 +45,7 @@ BASE_PATH_DATA = '/scratch/ns3429/sparse-subset/data/'
 n_epochs = 100
 batch_size = 64
 lr = 0.000002
-b1 = 0.5
+b1 = 0.9
 b2 = 0.999
 img_size = 28
 channels = 1
@@ -213,12 +213,17 @@ class VAE_l1_diag(nn.Module):
         
         self.encoder = nn.Sequential(
             nn.Linear(input_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU()
         )
+        
+        self.fc3_bn = nn.BatchNorm1d(hidden_layer_size)
 
     def encode(self, x):
         self.selection_layer = torch.diag(self.diag)
@@ -232,7 +237,7 @@ class VAE_l1_diag(nn.Module):
         return mu + eps*std
 
     def decode(self, z):
-        h = F.leaky_relu(self.fc3(z))
+        h = F.leaky_relu(self.fc3_bn(self.fc3(z)))
         mu_x = F.leaky_relu(self.fc4(h))
         #mu_x = self.fc4(h)
         logvar_x = self.fc5(h)
@@ -381,12 +386,17 @@ class VAE(nn.Module):
         
         self.encoder = nn.Sequential(
             nn.Linear(input_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU()
         )
+        
+        self.fc3_bn = nn.BatchNorm1d(hidden_layer_size)
         
         #self.decoder = nn.Sequential()
 
@@ -401,7 +411,7 @@ class VAE(nn.Module):
         return mu + eps*std
 
     def decode(self, z):    
-        h = F.leaky_relu(self.fc3(z))
+        h = F.leaky_relu(self.fc3_bn(self.fc3(z)))
         mu_x = F.leaky_relu(self.fc4(h))
         #mu_x = self.fc4(h)
         logvar_x = self.fc5(h)
@@ -596,6 +606,7 @@ class VAE_Gumbel(nn.Module):
         
         self.weight_creator = nn.Sequential(
             nn.Linear(input_size, hidden_layer_size),
+            nn.BatchNorm(hidden_layer_size),
             nn.ReLU(),
             nn.Linear(hidden_layer_size, input_size)
         )
@@ -610,13 +621,17 @@ class VAE_Gumbel(nn.Module):
         
         self.encoder = nn.Sequential(
             nn.Linear(input_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU()
         )
         
+        self.fc3_bn = nn.BatchNorm1d(hidden_layer_size)
 
     def encode(self, x):
         w = self.weight_creator(x)
@@ -631,7 +646,7 @@ class VAE_Gumbel(nn.Module):
         return mu + eps*std
 
     def decode(self, z):
-        h = F.leaky_relu(self.fc3(z))
+        h = F.leaky_relu(self.fc3_bn(self.fc3(z)))
         mu_x = F.leaky_relu(self.fc4(h))
         #mu_x = self.fc4(h)
         logvar_x = self.fc5(h)
@@ -856,7 +871,7 @@ graph_activations(test_data, vae_gumbel_with_pre, 'Gumbel Matching Pretrained VA
 # In[61]:
 
 
-k_all = [5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300, 350, 325, 350, 375,
+k_all = [5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 375,
          400, 425, 450]
 n_trials = 10
 
