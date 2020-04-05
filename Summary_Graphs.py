@@ -3,7 +3,7 @@
 
 # Let's just get a quick sparsity overview of the methods so far.
 
-# In[42]:
+# In[176]:
 
 
 import torch
@@ -25,24 +25,24 @@ import matplotlib.pyplot as plt
 import math
 
 
-# In[43]:
+# In[177]:
 
 
 import os
 from os import listdir
 
 
-# In[44]:
+# In[178]:
 
 
 #BASE_PATH_DATA = '../data/'
 BASE_PATH_DATA = '/scratch/ns3429/sparse-subset/data/'
 
 
-# In[45]:
+# In[179]:
 
 
-n_epochs = 50
+n_epochs = 25
 batch_size = 64
 lr = 0.001
 b1 = 0.9
@@ -63,7 +63,7 @@ n = 28 * 28
 EPSILON = 1e-10
 
 
-# In[46]:
+# In[180]:
 
 
 cuda = True if torch.cuda.is_available() else False
@@ -73,26 +73,26 @@ Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 device = torch.device("cuda:0" if cuda else "cpu")
 
 
-# In[47]:
+# In[181]:
 
 
 print("Device")
 print(device)
 
 
-# In[48]:
+# In[182]:
 
 
 np.random.seed(100)
 
 
-# In[49]:
+# In[183]:
 
 
 import scipy.io as sio
 
 
-# In[50]:
+# In[184]:
 
 
 a = sio.loadmat(BASE_PATH_DATA + 'zeisel/zeisel_data.mat')
@@ -108,13 +108,13 @@ for i in range(d):
     data[:, i] = (data[:, i] - mi) / (ma - mi)
 
 
-# In[51]:
+# In[185]:
 
 
 input_size = d
 
 
-# In[52]:
+# In[186]:
 
 
 slices = np.random.permutation(np.arange(data.shape[0]))
@@ -127,14 +127,14 @@ train_data = Tensor(train_data).to(device)
 test_data = Tensor(test_data).to(device)
 
 
-# In[53]:
+# In[187]:
 
 
 print(train_data.std(dim = 0).mean())
 print(test_data.std(dim = 0).mean())
 
 
-# In[54]:
+# In[188]:
 
 
 def loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent):
@@ -154,7 +154,7 @@ def loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent):
     return loss_rec + 130640 * KLD
 
 
-# In[55]:
+# In[189]:
 
 
 # KLD of D(P_1||P_2) where P_i are Gaussians, assuming diagonal
@@ -169,7 +169,7 @@ def kld_joint_autoencoders(mu_1, mu_2, logvar_1, logvar_2):
     return kld.sum()
 
 
-# In[56]:
+# In[190]:
 
 
 # for joint
@@ -192,7 +192,7 @@ def loss_function_joint(x, ae_1, ae_2):
 
 # Does L1 work if we normalize after every step?
 
-# In[57]:
+# In[191]:
 
 
 # L1 VAE model we are loading
@@ -237,8 +237,8 @@ class VAE_l1_diag(nn.Module):
 
     def decode(self, z):
         h = F.leaky_relu(self.fc3_bn(self.fc3(z)))
-        #mu_x = F.leaky_relu(self.fc4(h))
-        mu_x = self.fc4(h)
+        mu_x = F.leaky_relu(self.fc4(h))
+        #mu_x = self.fc4(h)
         logvar_x = self.fc5(h)
         return mu_x, logvar_x
 
@@ -249,7 +249,7 @@ class VAE_l1_diag(nn.Module):
         return mu_x, logvar_x, mu_latent, logvar_latent
 
 
-# In[58]:
+# In[192]:
 
 
 def train_l1(df, model, optimizer, epoch):
@@ -283,7 +283,7 @@ def train_l1(df, model, optimizer, epoch):
     
 
 
-# In[59]:
+# In[193]:
 
 
 def test(df, model, epoch):
@@ -303,7 +303,7 @@ def test(df, model, epoch):
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
 
-# In[60]:
+# In[194]:
 
 
 model_l1_diag = VAE_l1_diag(input_size, 200, 50)
@@ -314,7 +314,7 @@ model_l1_optimizer = torch.optim.Adam(model_l1_diag.parameters(),
                                             betas = (b1,b2))
 
 
-# In[61]:
+# In[195]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -322,7 +322,7 @@ for epoch in range(1, n_epochs + 1):
         test(test_data, model_l1_diag, epoch)
 
 
-# In[20]:
+# In[196]:
 
 
 bins = [10**(-i) for i in range(10)]
@@ -331,7 +331,7 @@ bins += [10]
 np.histogram(model_l1_diag.diag.abs().clone().detach().cpu().numpy(), bins = bins)
 
 
-# In[21]:
+# In[197]:
 
 
 with torch.no_grad():
@@ -342,20 +342,20 @@ with torch.no_grad():
     test_pred[test_pred < 0.001] = 0 
 
 
-# In[62]:
+# In[198]:
 
 
 test_data[0, :]
 
 
-# In[63]:
+# In[199]:
 
 
 print(torch.sum(test_pred[0,:] != 0))
 print(torch.sum(test_data[0,:] != 0))
 
 
-# In[24]:
+# In[200]:
 
 
 with torch.no_grad():
@@ -367,7 +367,7 @@ with torch.no_grad():
 # 
 # Then try joint training VAE and Gumbel Model
 
-# In[25]:
+# In[201]:
 
 
 # Vanilla VAE model
@@ -411,8 +411,8 @@ class VAE(nn.Module):
 
     def decode(self, z):    
         h = F.leaky_relu(self.fc3_bn(self.fc3(z)))
-        #mu_x = F.leaky_relu(self.fc4(h))
-        mu_x = self.fc4(h)
+        mu_x = F.leaky_relu(self.fc4(h))
+        #mu_x = self.fc4(h)
         logvar_x = self.fc5(h)
         return mu_x, logvar_x
 
@@ -425,7 +425,7 @@ class VAE(nn.Module):
 
 # # Pretrain VAE First
 
-# In[26]:
+# In[202]:
 
 
 pretrain_vae = VAE(input_size, 200, 50)
@@ -436,7 +436,7 @@ pretrain_vae_optimizer = torch.optim.Adam(pretrain_vae.parameters(),
                                             betas = (b1,b2))
 
 
-# In[27]:
+# In[203]:
 
 
 def train(df, model, optimizer, epoch):
@@ -466,7 +466,7 @@ def train(df, model, optimizer, epoch):
     
 
 
-# In[28]:
+# In[204]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -474,7 +474,7 @@ for epoch in range(1, n_epochs + 1):
         test(test_data, pretrain_vae, epoch)
 
 
-# In[29]:
+# In[205]:
 
 
 with torch.no_grad():
@@ -485,7 +485,7 @@ with torch.no_grad():
     test_pred[test_pred < 0.001] = 0 
 
 
-# In[30]:
+# In[206]:
 
 
 with torch.no_grad():
@@ -493,21 +493,21 @@ with torch.no_grad():
     print(torch.sum((test_pred - test_data[0:64, :]).abs()) / 64/500)
 
 
-# In[31]:
+# In[207]:
 
 
 print(torch.sum(test_pred[0,:] != 0))
 print(torch.sum(test_data[0,:] != 0))
 
 
-# In[32]:
+# In[208]:
 
 
 for p in pretrain_vae.parameters():
     p.requires_grad = False
 
 
-# In[33]:
+# In[209]:
 
 
 pretrain_vae.requires_grad_(False)
@@ -515,7 +515,7 @@ pretrain_vae.requires_grad_(False)
 
 # ## Train Gumbel with the Pre-Trained VAE
 
-# In[34]:
+# In[210]:
 
 
 def train_pre_trained(df, model, optimizer, epoch, pretrained_model):
@@ -547,7 +547,7 @@ def train_pre_trained(df, model, optimizer, epoch, pretrained_model):
           epoch, train_loss / len(df)))
 
 
-# In[35]:
+# In[211]:
 
 
 def gumbel_keys(w):
@@ -592,7 +592,7 @@ def sample_subset(w, k, t=0.1):
     return continuous_topk(w, k, t)
 
 
-# In[36]:
+# In[212]:
 
 
 # L1 VAE model we are loading
@@ -646,8 +646,8 @@ class VAE_Gumbel(nn.Module):
 
     def decode(self, z):
         h = F.leaky_relu(self.fc3_bn(self.fc3(z)))
-        #mu_x = F.leaky_relu(self.fc4(h))
-        mu_x = self.fc4(h)
+        mu_x = F.leaky_relu(self.fc4(h))
+        #mu_x = self.fc4(h)
         logvar_x = self.fc5(h)
         return mu_x, logvar_x
 
@@ -658,7 +658,7 @@ class VAE_Gumbel(nn.Module):
         return mu_x, logvar_x, mu_latent, logvar_latent
 
 
-# In[37]:
+# In[213]:
 
 
 vae_gumbel_with_pre = VAE_Gumbel(input_size, 200, 50, k = 50)
@@ -668,7 +668,7 @@ vae_gumbel_with_pre_optimizer = torch.optim.Adam(vae_gumbel_with_pre.parameters(
                                                 betas = (b1,b2))
 
 
-# In[38]:
+# In[214]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -676,7 +676,7 @@ for epoch in range(1, n_epochs + 1):
         test(test_data, vae_gumbel_with_pre, epoch)
 
 
-# In[39]:
+# In[215]:
 
 
 with torch.no_grad():
@@ -687,7 +687,7 @@ with torch.no_grad():
     test_pred[test_pred < 0.001] = 0 
 
 
-# In[40]:
+# In[216]:
 
 
 with torch.no_grad():
@@ -695,7 +695,7 @@ with torch.no_grad():
     print(torch.sum((test_pred - test_data[0:64, :]).abs()) / 64/500)
 
 
-# In[41]:
+# In[217]:
 
 
 print(torch.sum(test_pred[0,:] != 0))
@@ -704,7 +704,7 @@ print(torch.sum(test_data[0,:] != 0))
 
 # # Joint Training
 
-# In[42]:
+# In[218]:
 
 
 # model 1 should be vanilla
@@ -739,7 +739,7 @@ def train_joint(df, model1, model2, optimizer, epoch):
           epoch, train_loss / len(df)))
 
 
-# In[43]:
+# In[219]:
 
 
 def test_joint(df, model1, model2, epoch):
@@ -761,7 +761,7 @@ def test_joint(df, model1, model2, epoch):
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
 
-# In[44]:
+# In[220]:
 
 
 joint_vanilla_vae = VAE(input_size, 200, 50)
@@ -776,7 +776,7 @@ joint_optimizer = torch.optim.Adam(list(joint_vanilla_vae.parameters()) + list(j
                                                 betas = (b1,b2))
 
 
-# In[45]:
+# In[221]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -784,7 +784,7 @@ for epoch in range(1, n_epochs + 1):
     test_joint(test_data, joint_vanilla_vae, joint_vae_gumbel, epoch)
 
 
-# In[46]:
+# In[222]:
 
 
 with torch.no_grad():
@@ -795,7 +795,7 @@ with torch.no_grad():
     test_pred[test_pred < 0.001] = 0 
 
 
-# In[47]:
+# In[223]:
 
 
 with torch.no_grad():
@@ -803,7 +803,7 @@ with torch.no_grad():
     print(torch.sum((test_pred - test_data[0:64, :]).abs()) / 64/500)
 
 
-# In[48]:
+# In[224]:
 
 
 print(torch.sum(test_pred[0,:] != 0))
@@ -824,7 +824,7 @@ print(torch.sum(test_data[0,:] != 0))
 # 
 # ## Graph the mean activations at k = 50
 
-# In[59]:
+# In[225]:
 
 
 def graph_activations(test_data, model, title, file):
@@ -846,21 +846,21 @@ def graph_activations(test_data, model, title, file):
     plt.savefig(file)
 
 
-# In[ ]:
+# In[226]:
 
 
 graph_activations(test_data, model_l1_diag, 'Joint Gumbel vs Test Means', 
                   '/scratch/ns3429/sparse-subset/vae_l1.png')
 
 
-# In[60]:
+# In[227]:
 
 
 graph_activations(test_data, joint_vae_gumbel, 'Joint Gumbel vs Test Means', 
                   '/scratch/ns3429/sparse-subset/joint_gumbel.png')
 
 
-# In[62]:
+# In[228]:
 
 
 graph_activations(test_data, vae_gumbel_with_pre, 'Gumbel Matching Pretrained VAE vs Test Means', 
