@@ -776,6 +776,8 @@ def graph_activations(test_data, model, title, file):
     plt.plot(x, test_activations.clone().detach().cpu().numpy(), label = 'Average Test Data')
     
     plt.title(title)
+    plt.ylim([-0.1, 1])
+    plt.xlabel("Feature Index")
     
     plt.legend()
     plt.savefig(file)
@@ -790,9 +792,9 @@ def graph_sparsity(test_data, model, title, file):
     preds[preds < 0.09] = 0
     preds[preds >= 0.09] = 1
     
-    pred_count = preds.sum(dim = 0)
+    pred_count = preds.sum(dim = 0) / len(test_data)
     
-    test_count = test_data.sum(dim = 0)
+    test_count = test_data.sum(dim = 0) / len(test_data)
     
     x = np.arange(input_size) + 1
     
@@ -801,6 +803,8 @@ def graph_sparsity(test_data, model, title, file):
     plt.plot(x, test_count.clone().detach().cpu().numpy(), label = 'Count NonZero Test Data')
     
     plt.title(title)
+    plt.ylim([-0.1, 1])
+    plt.xlabel("Feature Index")
     
     plt.legend()
     plt.savefig(file)
@@ -842,7 +846,7 @@ del vae_gumbel_with_pre
 # In[61]:
 
 
-k_all = [5, 10, 50, 100]#, 500, 1000, 2000, 3000]
+k_all = [5, 10, 25, 50, 75, 100, 150, 250]#, 500, 1000, 2000, 3000]
 n_trials = 10
 
 
