@@ -867,8 +867,7 @@ graph_activations(test_data, vae_gumbel_with_pre, 'Gumbel Matching Pretrained VA
 # In[61]:
 
 
-k_all = [5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 375,
-         400, 425, 450]
+k_all = [5, 10, 50, 100, 500, 1000, 2000, 3000]
 n_trials = 10
 
 
