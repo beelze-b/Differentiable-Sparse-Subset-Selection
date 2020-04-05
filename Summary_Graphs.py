@@ -3,7 +3,7 @@
 
 # Let's just get a quick sparsity overview of the methods so far.
 
-# In[1]:
+# In[2]:
 
 
 import torch
@@ -25,24 +25,24 @@ import matplotlib.pyplot as plt
 import math
 
 
-# In[2]:
+# In[3]:
 
 
 import os
 from os import listdir
 
 
-# In[3]:
+# In[4]:
 
 
 #BASE_PATH_DATA = '../data/'
 BASE_PATH_DATA = '/scratch/ns3429/sparse-subset/data/'
 
 
-# In[4]:
+# In[5]:
 
 
-n_epochs = 100
+n_epochs = 25
 batch_size = 64
 lr = 0.001
 b1 = 0.9
@@ -64,7 +64,7 @@ n = 28 * 28
 EPSILON = 1e-10
 
 
-# In[5]:
+# In[6]:
 
 
 cuda = True if torch.cuda.is_available() else False
@@ -74,26 +74,26 @@ Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 device = torch.device("cuda:0" if cuda else "cpu")
 
 
-# In[6]:
+# In[7]:
 
 
 print("Device")
 print(device)
 
 
-# In[7]:
+# In[8]:
 
 
 np.random.seed(100)
 
 
-# In[8]:
+# In[9]:
 
 
 import scipy.io as sio
 
 
-# In[9]:
+# In[10]:
 
 
 a = sio.loadmat(BASE_PATH_DATA + 'zeisel/zeisel_data.mat')
@@ -101,7 +101,7 @@ data= a['zeisel_data'].T
 N,d=data.shape
 
 
-# In[10]:
+# In[11]:
 
 
 for i in range(d):
@@ -114,19 +114,19 @@ for i in range(d):
     data[:, i] = (data[:, i] - mi) / (ma - mi)
 
 
-# In[11]:
+# In[12]:
 
 
 data[data!=0].min()
 
 
-# In[12]:
+# In[13]:
 
 
 input_size = d
 
 
-# In[13]:
+# In[14]:
 
 
 slices = np.random.permutation(np.arange(data.shape[0]))
@@ -139,14 +139,14 @@ train_data = Tensor(train_data).to(device)
 test_data = Tensor(test_data).to(device)
 
 
-# In[14]:
+# In[15]:
 
 
 print(train_data.std(dim = 0).mean())
 print(test_data.std(dim = 0).mean())
 
 
-# In[29]:
+# In[16]:
 
 
 def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
@@ -161,7 +161,7 @@ def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
     return loss_rec + 100 * KLD
 
 
-# In[16]:
+# In[17]:
 
 
 # KLD of D(P_1||P_2) where P_i are Gaussians, assuming diagonal
@@ -176,7 +176,7 @@ def kld_joint_autoencoders(mu_1, mu_2, logvar_1, logvar_2):
     return kld.sum()
 
 
-# In[17]:
+# In[18]:
 
 
 # for joint
@@ -199,7 +199,7 @@ def loss_function_joint(x, ae_1, ae_2):
 
 # Does L1 work if we normalize after every step?
 
-# In[18]:
+# In[19]:
 
 
 # L1 VAE model we are loading
@@ -253,7 +253,7 @@ class VAE_l1_diag(nn.Module):
         return mu_x, mu_latent, logvar_latent
 
 
-# In[19]:
+# In[20]:
 
 
 def train_l1(df, model, optimizer, epoch):
@@ -287,7 +287,7 @@ def train_l1(df, model, optimizer, epoch):
     
 
 
-# In[20]:
+# In[21]:
 
 
 def test(df, model, epoch):
@@ -307,7 +307,7 @@ def test(df, model, epoch):
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
 
-# In[21]:
+# In[22]:
 
 
 def quick_model_summary(model, train_data, test_data, threshold):
@@ -367,7 +367,7 @@ quick_model_summary(model_l1_diag, train_data, test_data, 0.06)
 # 
 # Then try joint training VAE and Gumbel Model
 
-# In[30]:
+# In[23]:
 
 
 # Vanilla VAE model
@@ -422,7 +422,7 @@ class VAE(nn.Module):
 
 # # Pretrain VAE First
 
-# In[31]:
+# In[24]:
 
 
 pretrain_vae = VAE(input_size, hidden_size, z_size)
@@ -433,7 +433,7 @@ pretrain_vae_optimizer = torch.optim.Adam(pretrain_vae.parameters(),
                                             betas = (b1,b2))
 
 
-# In[32]:
+# In[25]:
 
 
 def train(df, model, optimizer, epoch):
@@ -463,7 +463,7 @@ def train(df, model, optimizer, epoch):
     
 
 
-# In[33]:
+# In[26]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -471,13 +471,13 @@ for epoch in range(1, n_epochs + 1):
         test(test_data, pretrain_vae, epoch)
 
 
-# In[26]:
+# In[27]:
 
 
 quick_model_summary(pretrain_vae, train_data, test_data, 0.06)
 
 
-# In[27]:
+# In[28]:
 
 
 for p in pretrain_vae.parameters():
