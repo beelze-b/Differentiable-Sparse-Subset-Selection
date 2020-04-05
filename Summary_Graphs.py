@@ -778,6 +778,7 @@ def graph_activations(test_data, model, title, file):
     plt.title(title)
     plt.ylim([-0.1, 1])
     plt.xlabel("Feature Index")
+    plt.ylabel("Average Activation of Feature")
     
     plt.legend()
     plt.savefig(file)
@@ -805,6 +806,7 @@ def graph_sparsity(test_data, model, title, file):
     plt.title(title)
     plt.ylim([-0.1, 1])
     plt.xlabel("Feature Index")
+    plt.ylabel("Proportion of Test Set Feature Was not Sparse")
     
     plt.legend()
     plt.savefig(file)
