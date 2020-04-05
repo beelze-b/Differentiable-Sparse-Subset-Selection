@@ -3,7 +3,7 @@
 
 # Let's just get a quick sparsity overview of the methods so far.
 
-# In[2]:
+# In[42]:
 
 
 import torch
@@ -25,21 +25,21 @@ import matplotlib.pyplot as plt
 import math
 
 
-# In[3]:
+# In[43]:
 
 
 import os
 from os import listdir
 
 
-# In[11]:
+# In[44]:
 
 
 #BASE_PATH_DATA = '../data/'
 BASE_PATH_DATA = '/scratch/ns3429/sparse-subset/data/'
 
 
-# In[12]:
+# In[45]:
 
 
 n_epochs = 50
@@ -63,7 +63,7 @@ n = 28 * 28
 EPSILON = 1e-10
 
 
-# In[13]:
+# In[46]:
 
 
 cuda = True if torch.cuda.is_available() else False
@@ -73,26 +73,26 @@ Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 device = torch.device("cuda:0" if cuda else "cpu")
 
 
-# In[14]:
+# In[47]:
 
 
 print("Device")
 print(device)
 
 
-# In[15]:
+# In[48]:
 
 
 np.random.seed(100)
 
 
-# In[16]:
+# In[49]:
 
 
 import scipy.io as sio
 
 
-# In[28]:
+# In[50]:
 
 
 a = sio.loadmat(BASE_PATH_DATA + 'zeisel/zeisel_data.mat')
@@ -105,7 +105,13 @@ for i in range(d):
     data[:,i] = (data[:,i] - mi) / std
 
 
-# In[10]:
+# In[51]:
+
+
+input_size = d
+
+
+# In[52]:
 
 
 slices = np.random.permutation(np.arange(data.shape[0]))
@@ -118,14 +124,14 @@ train_data = Tensor(train_data).to(device)
 test_data = Tensor(test_data).to(device)
 
 
-# In[11]:
+# In[53]:
 
 
 print(train_data.std(dim = 0).mean())
 print(test_data.std(dim = 0).mean())
 
 
-# In[12]:
+# In[54]:
 
 
 def loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent):
@@ -145,7 +151,7 @@ def loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent):
     return loss_rec + 130640 * KLD
 
 
-# In[13]:
+# In[55]:
 
 
 # KLD of D(P_1||P_2) where P_i are Gaussians, assuming diagonal
@@ -160,7 +166,7 @@ def kld_joint_autoencoders(mu_1, mu_2, logvar_1, logvar_2):
     return kld.sum()
 
 
-# In[14]:
+# In[56]:
 
 
 # for joint
@@ -183,7 +189,7 @@ def loss_function_joint(x, ae_1, ae_2):
 
 # Does L1 work if we normalize after every step?
 
-# In[15]:
+# In[57]:
 
 
 # L1 VAE model we are loading
@@ -240,7 +246,7 @@ class VAE_l1_diag(nn.Module):
         return mu_x, logvar_x, mu_latent, logvar_latent
 
 
-# In[16]:
+# In[58]:
 
 
 def train_l1(df, model, optimizer, epoch):
@@ -274,7 +280,7 @@ def train_l1(df, model, optimizer, epoch):
     
 
 
-# In[17]:
+# In[59]:
 
 
 def test(df, model, epoch):
@@ -294,10 +300,10 @@ def test(df, model, epoch):
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
 
-# In[18]:
+# In[60]:
 
 
-model_l1_diag = VAE_l1_diag(500, 200, 50)
+model_l1_diag = VAE_l1_diag(input_size, 200, 50)
 
 model_l1_diag.to(device)
 model_l1_optimizer = torch.optim.Adam(model_l1_diag.parameters(), 
@@ -305,7 +311,7 @@ model_l1_optimizer = torch.optim.Adam(model_l1_diag.parameters(),
                                             betas = (b1,b2))
 
 
-# In[19]:
+# In[61]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -419,7 +425,7 @@ class VAE(nn.Module):
 # In[26]:
 
 
-pretrain_vae = VAE(500, 200, 50)
+pretrain_vae = VAE(input_size, 200, 50)
 
 pretrain_vae.to(device)
 pretrain_vae_optimizer = torch.optim.Adam(pretrain_vae.parameters(), 
@@ -652,7 +658,7 @@ class VAE_Gumbel(nn.Module):
 # In[37]:
 
 
-vae_gumbel_with_pre = VAE_Gumbel(500, 200, 50, k = 50)
+vae_gumbel_with_pre = VAE_Gumbel(input_size, 200, 50, k = 50)
 vae_gumbel_with_pre.to(device)
 vae_gumbel_with_pre_optimizer = torch.optim.Adam(vae_gumbel_with_pre.parameters(), 
                                                 lr=lr, 
@@ -755,10 +761,10 @@ def test_joint(df, model1, model2, epoch):
 # In[44]:
 
 
-joint_vanilla_vae = VAE(500, 200, 50)
+joint_vanilla_vae = VAE(input_size, 200, 50)
 joint_vanilla_vae.to(device)
 
-joint_vae_gumbel = VAE_Gumbel(500, 200, 50, k = 50)
+joint_vae_gumbel = VAE_Gumbel(input_size, 200, 50, k = 50)
 joint_vae_gumbel.to(device)
 
 
@@ -881,16 +887,16 @@ for k in k_all:
     current_k_joint_losses = []
     for trial_i in range(n_trials):
         print("RUNNING for K {} Trial {}".format(k, trial_i), flush=True)
-        vae_gumbel_with_pre = VAE_Gumbel(500, 200, 50, k = k)
+        vae_gumbel_with_pre = VAE_Gumbel(input_size, 200, 50, k = k)
         vae_gumbel_with_pre.to(device)
         vae_gumbel_with_pre_optimizer = torch.optim.Adam(vae_gumbel_with_pre.parameters(), 
                                                         lr=lr, 
                                                         betas = (b1,b2))
     
-        joint_vanilla_vae = VAE(500, 200, 50)
+        joint_vanilla_vae = VAE(input_size, 200, 50)
         joint_vanilla_vae.to(device)
 
-        joint_vae_gumbel = VAE_Gumbel(500, 200, 50, k = k)
+        joint_vae_gumbel = VAE_Gumbel(input_size, 200, 50, k = k)
         joint_vae_gumbel.to(device)
 
 
