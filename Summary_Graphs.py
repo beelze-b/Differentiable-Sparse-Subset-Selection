@@ -35,14 +35,14 @@ from os import listdir
 # In[3]:
 
 
-BASE_PATH_DATA = '../data/'
-#BASE_PATH_DATA = '/scratch/ns3429/sparse-subset/data/'
+#BASE_PATH_DATA = '../data/'
+BASE_PATH_DATA = '/scratch/ns3429/sparse-subset/data/'
 
 
 # In[4]:
 
 
-n_epochs = 10
+n_epochs = 100
 batch_size = 64
 lr = 0.001
 b1 = 0.9
@@ -158,7 +158,6 @@ def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
     # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     KLD = -0.5 * torch.sum(1 + logvar_latent - mu_latent.pow(2) - logvar_latent.exp())
-    print(loss_rec.item(), KLD.item())
     return loss_rec + 100 * KLD
 
 
@@ -313,18 +312,20 @@ def test(df, model, epoch):
 
 def quick_model_summary(model, train_data, test_data, threshold):
     with torch.no_grad():
-        train_pred = pretrain_vae(train_data[0:batch_size, :])[0]
+        train_pred = model(train_data[0:batch_size, :])[0]
         train_pred[train_pred < 0.06] = 0 
 
-        test_pred = pretrain_vae(test_data[0:batch_size,:])[0]
+        test_pred = model(test_data[0:batch_size,:])[0]
         test_pred[test_pred < 0.06] = 0 
         
-    print(F.binary_cross_entropy(train_pred, train_data[0:batch_size, :], reduction='sum') 
-          / batch_size/ input_size)
-    print(F.binary_cross_entropy(test_pred, test_data[0:batch_size, :], reduction='sum') 
-          / batch_size/ input_size)
+    print("Per Neuron Loss Train")
+    print(F.binary_cross_entropy(train_pred, train_data[0:batch_size, :], reduction='sum') / batch_size/ input_size)
+    print("Per Neuron Loss Test")
+    print(F.binary_cross_entropy(test_pred, test_data[0:batch_size, :], reduction='sum') / batch_size/ input_size)
     
+    print("# Non Sparse in Pred test")
     print(torch.sum(test_pred[0,:] != 0))
+    print("# Non Sparse in Orig test")
     print(torch.sum(test_data[0,:] != 0))
 
 
@@ -780,11 +781,38 @@ def graph_activations(test_data, model, title, file):
     plt.savefig(file)
 
 
+# In[ ]:
+
+
+def graph_sparsity(test_data, model, title, file):
+    preds, _, _ = model(test_data)
+    
+    preds[preds < 0.08] = 0
+    preds[preds >= 0.08] = 1
+    
+    pred_count = preds.sum(dim = 0)
+    
+    test_count = test_data.sum(dim = 0)
+    
+    x = np.arange(input_size) + 1
+    
+    fig = plt.figure()
+    plt.plot(x, pred_count.clone().detach().cpu().numpy(), label = 'Count NonZero Predictions')
+    plt.plot(x, test_count.clone().detach().cpu().numpy(), label = 'Count NonZero Test Data')
+    
+    plt.title(title)
+    
+    plt.legend()
+    plt.savefig(file)
+
+
 # In[69]:
 
 
 graph_activations(test_data, model_l1_diag, 'Joint Gumbel vs Test Means', 
-                  '/scratch/ns3429/sparse-subset/vae_l1.png')
+                  '/scratch/ns3429/sparse-subset/vae_l1_activations.png')
+graph_sparsity(test_data, model_l1_diag, 'Joint Gumbel vs Test Sparsity', 
+                  '/scratch/ns3429/sparse-subset/vae_l1_sparsity.png')
 
 del model_l1_diag
 
@@ -793,7 +821,9 @@ del model_l1_diag
 
 
 graph_activations(test_data, joint_vae_gumbel, 'Joint Gumbel vs Test Means', 
-                  '/scratch/ns3429/sparse-subset/joint_gumbel.png')
+                  '/scratch/ns3429/sparse-subset/joint_gumbel_activations.png')
+graph_sparsity(test_data, joint_vae_gumbel, 'Joint Gumbel vs Test Sparsity', 
+                  '/scratch/ns3429/sparse-subset/joint_gumbel_sparsity.png')
 
 del joint_vae_gumbel
 
@@ -802,7 +832,9 @@ del joint_vae_gumbel
 
 
 graph_activations(test_data, vae_gumbel_with_pre, 'Gumbel Matching Pretrained VAE vs Test Means', 
-                  '/scratch/ns3429/sparse-subset/pretrained_gumbel.png')
+                  '/scratch/ns3429/sparse-subset/pretrained_gumbel_activations.png')
+graph_sparsity((test_data, vae_gumbel_with_pre, 'Gumbel Matching Pretrained VAE vs Test Sparsity', 
+                  '/scratch/ns3429/sparse-subset/pretrained_gumbel_sparsity.png')
 
 del vae_gumbel_with_pre
 
@@ -858,10 +890,8 @@ for k in k_all:
         test_pred_joint[test_pred_joint < 0.06] = 0
     
         with torch.no_grad():
-            mae_pre = F.binary_cross_entropy(test_pred_pre, test_data, reduction='sum') 
-            len((test_data), /, input_size)
-            mae_joint = F.binary_cross_entropy(test_pred_joint, test_data, reduction='sum') 
-            len((test_data), /, input_size)
+            mae_pre = F.binary_cross_entropy(test_pred_pre, test_data, reduction='sum') / len(test_data) / input_size
+            mae_joint = F.binary_cross_entropy(test_pred_joint, test_data, reduction='sum') / len(test_data) / input_size
         
         current_k_pre_losses.append(mae_pre.cpu().item())
         current_k_joint_losses.append(mae_joint.cpu().item())
