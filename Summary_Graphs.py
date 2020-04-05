@@ -42,15 +42,15 @@ BASE_PATH_DATA = '/scratch/ns3429/sparse-subset/data/'
 # In[4]:
 
 
-n_epochs = 100
+n_epochs = 50
 batch_size = 64
-lr = 0.000002
+lr = 0.002
 b1 = 0.9
 b2 = 0.999
 img_size = 28
 channels = 1
 
-log_interval = 100
+log_interval = 20
 
 
 z_size = 40
@@ -275,7 +275,7 @@ def train_l1(df, model, optimizer, epoch):
         if i % log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, i * len(batch_data), len(df),
-                100. * i / len(df),
+                100. * i * len(batch_data) / len(df),
                 loss.item() / len(batch_data)))
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(
@@ -458,7 +458,7 @@ def train(df, model, optimizer, epoch):
         if i % log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, i * len(batch_data), len(df),
-                100. * i / len(df),
+                100. * i * len(batch_data)/ len(df),
                 loss.item() / len(batch_data)))
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(
@@ -541,7 +541,7 @@ def train_pre_trained(df, model, optimizer, epoch, pretrained_model):
         if i % log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, i * len(batch_data), len(df),
-                100. * i / len(df),
+                100. * i * len(batch_data)/ len(df),
                 loss.item() / len(batch_data)))
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(
@@ -733,7 +733,7 @@ def train_joint(df, model1, model2, optimizer, epoch):
         if i % log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, i * len(batch_data), len(df),
-                100. * i / len(df),
+                100. * i * len(batch_data)/ len(df),
                 loss.item() / len(batch_data)))
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(
@@ -890,7 +890,7 @@ for k in k_all:
     current_k_pre_losses = []
     current_k_joint_losses = []
     for trial_i in range(n_trials):
-        print("RUNNING for K {} Trial {}".format(k, trial_i))
+        print("RUNNING for K {} Trial {}".format(k, trial_i), flush=True)
         vae_gumbel_with_pre = VAE_Gumbel(500, 200, 50, k = k)
         vae_gumbel_with_pre.to(device)
         vae_gumbel_with_pre_optimizer = torch.optim.Adam(vae_gumbel_with_pre.parameters(), 
