@@ -606,7 +606,7 @@ class VAE_Gumbel(nn.Module):
         
         self.weight_creator = nn.Sequential(
             nn.Linear(input_size, hidden_layer_size),
-            nn.BatchNorm(hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.ReLU(),
             nn.Linear(hidden_layer_size, input_size)
         )
@@ -927,15 +927,17 @@ for k in k_all:
         current_k_joint_losses.append(mae_joint.cpu().item())
         
         # for freeing memory faster
-        del vae_gumbel_with_pre
-        del vae_gumbel_with_pre_optimizer
-        del joint_vanilla_vae
-        del joint_vae_gumbel
-        del joint_optimizer
-        del test_pred_pre
-        del test_pred_joint
+        # but not too fast
+        if (trial+1) % 2 == 0:
+            del vae_gumbel_with_pre
+            del vae_gumbel_with_pre_optimizer
+            del joint_vanilla_vae
+            del joint_vae_gumbel
+            del joint_optimizer
+            del test_pred_pre
+            del test_pred_joint
 
-        torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
         
     
     losses_pre.append(np.mean(current_k_pre_losses))
