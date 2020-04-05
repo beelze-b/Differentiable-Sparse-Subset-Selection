@@ -100,9 +100,12 @@ data= a['zeisel_data'].T
 N,d=data.shape
 for i in range(d):
     #data[i,:]=data[i,:]/np.linalg.norm(data[i,:])
-    mi = np.mean(data[:,i])
-    std = np.std(data[:,i])
-    data[:,i] = (data[:,i] - mi) / std
+    #mi = np.mean(data[:,i])
+    #std = np.std(data[:,i])
+    #data[:,i] = (data[:,i] - mi) / std
+    ma = np.max(data[:,i])
+    mi = np.min(data[:,i])
+    data[:, i] = (data[:, i] - mi) / (ma - mi)
 
 
 # In[51]:
@@ -339,13 +342,13 @@ with torch.no_grad():
     test_pred[test_pred < 0.001] = 0 
 
 
-# In[22]:
+# In[62]:
 
 
 test_data[0, :]
 
 
-# In[23]:
+# In[63]:
 
 
 print(torch.sum(test_pred[0,:] != 0))
@@ -831,7 +834,7 @@ def graph_activations(test_data, model, title, file):
     
     test_activations = test_data.mean(dim = 0)
     
-    x = np.arange(500) + 1
+    x = np.arange(input_size) + 1
     
     fig = plt.figure()
     plt.plot(x, pred_activations.clone().detach().cpu().numpy(), label = 'Average Predictions')
@@ -922,17 +925,15 @@ for k in k_all:
         current_k_joint_losses.append(mae_joint.cpu().item())
         
         # for freeing memory faster
-        # but not too fast
-        if (trial_i+1) % 5 == 0:
-            del vae_gumbel_with_pre
-            del vae_gumbel_with_pre_optimizer
-            del joint_vanilla_vae
-            del joint_vae_gumbel
-            del joint_optimizer
-            del test_pred_pre
-            del test_pred_joint
+        del vae_gumbel_with_pre
+        del vae_gumbel_with_pre_optimizer
+        del joint_vanilla_vae
+        del joint_vae_gumbel
+        del joint_optimizer
+        del test_pred_pre
+        del test_pred_joint
 
-            torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
         
     
     losses_pre.append(np.mean(current_k_pre_losses))
