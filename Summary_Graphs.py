@@ -3,7 +3,7 @@
 
 # Let's just get a quick sparsity overview of the methods so far.
 
-# In[1]:
+# In[2]:
 
 
 import torch
@@ -25,26 +25,26 @@ import matplotlib.pyplot as plt
 import math
 
 
-# In[2]:
+# In[3]:
 
 
 import os
 from os import listdir
 
 
-# In[3]:
+# In[11]:
 
 
 #BASE_PATH_DATA = '../data/'
 BASE_PATH_DATA = '/scratch/ns3429/sparse-subset/data/'
 
 
-# In[4]:
+# In[12]:
 
 
 n_epochs = 50
 batch_size = 64
-lr = 0.002
+lr = 0.001
 b1 = 0.9
 b2 = 0.999
 img_size = 28
@@ -63,7 +63,7 @@ n = 28 * 28
 EPSILON = 1e-10
 
 
-# In[5]:
+# In[13]:
 
 
 cuda = True if torch.cuda.is_available() else False
@@ -73,46 +73,36 @@ Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 device = torch.device("cuda:0" if cuda else "cpu")
 
 
-# In[6]:
+# In[14]:
 
 
 print("Device")
 print(device)
 
 
-# In[7]:
+# In[15]:
 
 
 np.random.seed(100)
 
 
-# In[8]:
+# In[16]:
 
 
 import scipy.io as sio
 
 
-# In[9]:
+# In[28]:
 
 
-a = sio.loadmat(BASE_PATH_DATA + 'zeisel/CITEseq.mat')
-data= a['G'].T
+a = sio.loadmat(BASE_PATH_DATA + 'zeisel/zeisel_data.mat')
+data= a['zeisel_data'].T
 N,d=data.shape
-#transformation from integer entries 
-data=np.log(data+np.ones(data.shape))
-#for i in range(N):
 for i in range(d):
     #data[i,:]=data[i,:]/np.linalg.norm(data[i,:])
-    data[:,i]= (data[:,i] - np.min(data[:,i])) /  (np.max(data[:,i]) - np.min(data[:, i]))
-
-#load labels from file
-a = sio.loadmat(BASE_PATH_DATA + 'zeisel/CITEseq-labels.mat')
-l_aux = a['labels']
-labels = np.array([i for [i] in l_aux])
-
-#load names from file
-a = sio.loadmat(BASE_PATH_DATA + 'zeisel/CITEseq_names.mat')
-names=[a['citeseq_names'][i][0][0] for i in range(N)]
+    mi = np.mean(data[:,i])
+    std = np.std(data[:,i])
+    data[:,i] = (data[:,i] - mi) / std
 
 
 # In[10]:
@@ -238,8 +228,8 @@ class VAE_l1_diag(nn.Module):
 
     def decode(self, z):
         h = F.leaky_relu(self.fc3_bn(self.fc3(z)))
-        mu_x = F.leaky_relu(self.fc4(h))
-        #mu_x = self.fc4(h)
+        #mu_x = F.leaky_relu(self.fc4(h))
+        mu_x = self.fc4(h)
         logvar_x = self.fc5(h)
         return mu_x, logvar_x
 
@@ -412,8 +402,8 @@ class VAE(nn.Module):
 
     def decode(self, z):    
         h = F.leaky_relu(self.fc3_bn(self.fc3(z)))
-        mu_x = F.leaky_relu(self.fc4(h))
-        #mu_x = self.fc4(h)
+        #mu_x = F.leaky_relu(self.fc4(h))
+        mu_x = self.fc4(h)
         logvar_x = self.fc5(h)
         return mu_x, logvar_x
 
@@ -647,8 +637,8 @@ class VAE_Gumbel(nn.Module):
 
     def decode(self, z):
         h = F.leaky_relu(self.fc3_bn(self.fc3(z)))
-        mu_x = F.leaky_relu(self.fc4(h))
-        #mu_x = self.fc4(h)
+        #mu_x = F.leaky_relu(self.fc4(h))
+        mu_x = self.fc4(h)
         logvar_x = self.fc5(h)
         return mu_x, logvar_x
 
@@ -928,7 +918,7 @@ for k in k_all:
         
         # for freeing memory faster
         # but not too fast
-        if (trial+1) % 2 == 0:
+        if (trial_i+1) % 5 == 0:
             del vae_gumbel_with_pre
             del vae_gumbel_with_pre_optimizer
             del joint_vanilla_vae
