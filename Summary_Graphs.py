@@ -24,6 +24,8 @@ from torchvision.utils import save_image
 import matplotlib.pyplot as plt
 import math
 
+import gc
+
 
 # In[2]:
 
@@ -551,6 +553,8 @@ def continuous_topk(w, k, t, separate=False):
         #onehot_approx = tf.nn.softmax(w / t, axis=-1)
         onehot_approx = softmax(w/t)
         khot_list.append(onehot_approx)
+        gc.collect()
+        torch.cuda.empty_cache()
     if separate:
         return torch.stack(khot_list)
     else:
