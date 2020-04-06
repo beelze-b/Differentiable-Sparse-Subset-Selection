@@ -3,7 +3,7 @@
 
 # Let's just get a quick sparsity overview of the methods so far.
 
-# In[1]:
+# In[10]:
 
 
 import torch
@@ -26,22 +26,24 @@ import math
 
 import gc
 
+from utils import *
 
-# In[2]:
+
+# In[11]:
 
 
 import os
 from os import listdir
 
 
-# In[3]:
+# In[12]:
 
 
 #BASE_PATH_DATA = '../data/'
 BASE_PATH_DATA = '/scratch/ns3429/sparse-subset/data/'
 
 
-# In[4]:
+# In[13]:
 
 
 n_epochs = 25
@@ -52,7 +54,6 @@ b2 = 0.999
 img_size = 28
 channels = 1
 
-log_interval = 20
 
 
 z_size = 250
@@ -66,36 +67,37 @@ n = 28 * 28
 EPSILON = 1e-10
 
 
-# In[5]:
+# In[14]:
 
 
 cuda = True if torch.cuda.is_available() else False
 
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
-device = torch.device("cuda:0" if cuda else "cpu")
+#device = torch.device("cuda:0" if cuda else "cpu")
+device = 'cpu'
 
 
-# In[6]:
+# In[15]:
 
 
 print("Device")
 print(device)
 
 
-# In[7]:
+# In[16]:
 
 
 np.random.seed(100)
 
 
-# In[8]:
+# In[17]:
 
 
 import scipy.io as sio
 
 
-# In[9]:
+# In[18]:
 
 
 a = sio.loadmat(BASE_PATH_DATA + 'zeisel/zeisel_data.mat')
@@ -103,7 +105,7 @@ data= a['zeisel_data'].T
 N,d=data.shape
 
 
-# In[10]:
+# In[19]:
 
 
 for i in range(d):
@@ -116,19 +118,19 @@ for i in range(d):
     data[:, i] = (data[:, i] - mi) / (ma - mi)
 
 
-# In[11]:
+# In[20]:
 
 
 data[data!=0].min()
 
 
-# In[12]:
+# In[21]:
 
 
 input_size = d
 
 
-# In[13]:
+# In[22]:
 
 
 slices = np.random.permutation(np.arange(data.shape[0]))
@@ -141,197 +143,16 @@ train_data = Tensor(train_data).to(device)
 test_data = Tensor(test_data).to(device)
 
 
-# In[14]:
+# In[23]:
 
 
 print(train_data.std(dim = 0).mean())
 print(test_data.std(dim = 0).mean())
 
 
-# In[15]:
-
-
-def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
-    loss_rec = F.binary_cross_entropy(recon_x, x, reduction='sum')
-    
-
-    # see Appendix B from VAE paper:
-    # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
-    # https://arxiv.org/abs/1312.6114
-    # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    KLD = -0.5 * torch.sum(1 + logvar_latent - mu_latent.pow(2) - logvar_latent.exp())
-    return loss_rec + 100 * KLD
-
-
-# In[16]:
-
-
-# KLD of D(P_1||P_2) where P_i are Gaussians, assuming diagonal
-def kld_joint_autoencoders(mu_1, mu_2, logvar_1, logvar_2):
-    # equation 6 of Tutorial on Variational Autoencoders by Carl Doersch
-    # https://arxiv.org/pdf/1606.05908.pdf
-    mu_12 = mu_1 - mu_2
-    kld = 0.5 * (-1 - (logvar_1 - logvar_2) + mu_12.pow(2) / logvar_2.exp() + torch.exp(logvar_1 - logvar_2))
-    #print(kld.shape)
-    kld = torch.sum(kld, dim = 1)
-    
-    return kld.sum()
-
-
-# In[17]:
-
-
-# for joint
-def loss_function_joint(x, ae_1, ae_2):
-    # assuming that both autoencoders return recon_x, mu, and logvar
-    # try to make ae_1 the vanilla vae
-    # ae_2 should be the L1 penalty VAE
-    mu_x_1, mu_latent_1, logvar_latent_1 = ae_1(x)
-    mu_x_2, mu_latent_2, logvar_latent_2 = ae_2(x)
-    
-    loss_vae_1 = loss_function_per_autoencoder(x, mu_x_1, mu_latent_1, logvar_latent_1)
-    loss_vae_2 = loss_function_per_autoencoder(x, mu_x_2, mu_latent_2, logvar_latent_2)
-    joint_kld_loss = kld_joint_autoencoders(mu_latent_1, mu_latent_2, logvar_latent_1, logvar_latent_1)
-    #print("Losses")
-    #print(loss_vae_1)
-    #print(loss_vae_2)
-    #print(joint_kld_loss)
-    return loss_vae_1, loss_vae_2, joint_kld_loss
-
-
 # Does L1 work if we normalize after every step?
 
-# In[18]:
-
-
-# L1 VAE model we are loading
-class VAE_l1_diag(nn.Module):
-    def __init__(self, input_size, hidden_layer_size, z_size):
-        super(VAE_l1_diag, self).__init__()
-        
-        self.diag = nn.Parameter(torch.normal(torch.zeros(input_size), 
-                                 torch.ones(input_size)).to(device).requires_grad_(True))
-        
-        # self.fc1 = nn.Linear(input_size, hidden_layer_size)
-        self.fc21 = nn.Linear(hidden_layer_size, z_size)
-        self.fc22 = nn.Linear(hidden_layer_size, z_size)
-        self.fc3 = nn.Linear(z_size, hidden_layer_size)
-        self.fc4 = nn.Linear(hidden_layer_size, input_size)
-        
-        self.encoder = nn.Sequential(
-            nn.Linear(input_size, 2*hidden_layer_size),
-            nn.BatchNorm1d(2*hidden_layer_size),
-            nn.LeakyReLU(),
-            nn.Linear(2*hidden_layer_size, hidden_layer_size),
-            nn.BatchNorm1d(hidden_layer_size),
-            nn.LeakyReLU(),
-            nn.Linear(hidden_layer_size, hidden_layer_size),
-            nn.BatchNorm1d(hidden_layer_size),
-            nn.LeakyReLU()
-        )
-        
-        self.fc3_bn = nn.BatchNorm1d(hidden_layer_size)
-
-    def encode(self, x):
-        self.selection_layer = torch.diag(self.diag)
-        h0 = torch.mm(x, self.selection_layer)
-        h1 = self.encoder(h0)
-        return self.fc21(h1), self.fc22(h1)
-
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5*logvar)
-        eps = torch.randn_like(std)
-        return mu + eps*std
-
-    def decode(self, z):
-        h = F.leaky_relu(self.fc3_bn(self.fc3(z)))
-        mu_x = self.fc4(h)
-        return torch.sigmoid(mu_x)
-
-    def forward(self, x):
-        mu_latent, logvar_latent = self.encode(x)
-        z = self.reparameterize(mu_latent, logvar_latent)
-        mu_x = self.decode(z)
-        return mu_x, mu_latent, logvar_latent
-
-
-# In[19]:
-
-
-def train_l1(df, model, optimizer, epoch):
-    model.train()
-    train_loss = 0
-    permutations = torch.randperm(df.shape[0])
-    for i in range(math.ceil(len(df)/batch_size)):
-        batch_ind = permutations[i * batch_size : (i+1) * batch_size]
-        batch_data = df[batch_ind, :]
-        
-        optimizer.zero_grad()
-        mu_x, mu_latent, logvar_latent = model(batch_data)
-        loss = loss_function_per_autoencoder(batch_data, mu_x, mu_latent, logvar_latent)
-        loss += 100 * torch.norm(model.diag, p = 1)
-        loss.backward()
-        train_loss += loss.item()
-        optimizer.step()
-        
-        with torch.no_grad():
-            model.diag.data /= torch.norm(model.diag.data, p = 2)
-        
-        if i % log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, i * len(batch_data), len(df),
-                100. * i * len(batch_data) / len(df),
-                loss.item() / len(batch_data)))
-
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
-          epoch, train_loss / len(df)))
-    
-    
-
-
-# In[20]:
-
-
-def test(df, model, epoch):
-    model.eval()
-    test_loss = 0
-    inds = np.arange(df.shape[0])
-    with torch.no_grad():
-        for i in range(math.ceil(len(df)/batch_size)):
-            batch_ind = inds[i * batch_size : (i+1) * batch_size]
-            batch_data = df[batch_ind, :]
-            batch_data = batch_data.to(device)
-            mu_x, mu_latent, logvar_latent = model(batch_data)
-            test_loss += loss_function_per_autoencoder(batch_data, mu_x, mu_latent, logvar_latent).item()
-
-
-    test_loss /= len(df)
-    print('====> Test set loss: {:.4f}'.format(test_loss))
-
-
-# In[21]:
-
-
-def quick_model_summary(model, train_data, test_data, threshold):
-    with torch.no_grad():
-        train_pred = model(train_data[0:batch_size, :])[0]
-        train_pred[train_pred < threshold] = 0 
-
-        test_pred = model(test_data[0:batch_size,:])[0]
-        test_pred[test_pred < threshold] = 0 
-        
-    print("Per Neuron Loss Train")
-    print(F.binary_cross_entropy(train_pred, train_data[0:batch_size, :], reduction='sum') / batch_size/ input_size)
-    print("Per Neuron Loss Test")
-    print(F.binary_cross_entropy(test_pred, test_data[0:batch_size, :], reduction='sum') / batch_size/ input_size)
-    
-    print("# Non Sparse in Pred test")
-    print(torch.sum(test_pred[0,:] != 0))
-    print("# Non Sparse in Orig test")
-    print(torch.sum(test_data[0,:] != 0))
-
-
-# In[19]:
+# In[24]:
 
 
 model_l1_diag = VAE_l1_diag(input_size, hidden_size, z_size)
@@ -342,15 +163,15 @@ model_l1_optimizer = torch.optim.Adam(model_l1_diag.parameters(),
                                             betas = (b1,b2))
 
 
-# In[20]:
+# In[25]:
 
 
 for epoch in range(1, n_epochs + 1):
-        train_l1(train_data, model_l1_diag, model_l1_optimizer, epoch)
-        test(test_data, model_l1_diag, epoch)
+        train_l1(train_data, model_l1_diag, model_l1_optimizer, epoch, batch_size)
+        test(test_data, model_l1_diag, epoch, batch_size)
 
 
-# In[21]:
+# In[ ]:
 
 
 bins = [10**(-i) for i in range(10)]
@@ -359,7 +180,7 @@ bins += [10]
 print(np.histogram(model_l1_diag.diag.abs().clone().detach().cpu().numpy(), bins = bins))
 
 
-# In[43]:
+# In[ ]:
 
 
 quick_model_summary(model_l1_diag, train_data, test_data, 0.1)
@@ -369,62 +190,9 @@ quick_model_summary(model_l1_diag, train_data, test_data, 0.1)
 # 
 # Then try joint training VAE and Gumbel Model
 
-# In[22]:
-
-
-# Vanilla VAE model
-# try with gaussian decoder
-class VAE(nn.Module):
-    def __init__(self, input_size, hidden_layer_size, z_size):
-        super(VAE, self).__init__()
-
-        #self.fc1 = nn.Linear(input_size, hidden_layer_size)
-        self.fc21 = nn.Linear(hidden_layer_size, z_size)
-        self.fc22 = nn.Linear(hidden_layer_size, z_size)
-        self.fc3 = nn.Linear(z_size, hidden_layer_size)
-        self.fc4 = nn.Linear(hidden_layer_size, input_size)
-        
-        self.encoder = nn.Sequential(
-            nn.Linear(input_size, 2*hidden_layer_size),
-            nn.BatchNorm1d(2*hidden_layer_size),
-            nn.LeakyReLU(),
-            nn.Linear(2*hidden_layer_size, hidden_layer_size),
-            nn.BatchNorm1d(hidden_layer_size),
-            nn.LeakyReLU(),
-            nn.Linear(hidden_layer_size, hidden_layer_size),
-            nn.BatchNorm1d(hidden_layer_size),
-            nn.LeakyReLU()
-        )
-        
-        self.fc3_bn = nn.BatchNorm1d(hidden_layer_size)
-        
-        #self.decoder = nn.Sequential()
-
-    def encode(self, x):
-        #h1 = F.relu(self.fc1(x))
-        h1 = self.encoder(x)
-        return self.fc21(h1), self.fc22(h1)
-
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5*logvar)
-        eps = torch.randn_like(std)
-        return mu + eps*std
-
-    def decode(self, z):    
-        h = F.leaky_relu(self.fc3_bn(self.fc3(z)))
-        mu_x = self.fc4(h)
-        return torch.sigmoid(mu_x)
-
-    def forward(self, x):
-        mu_latent, logvar_latent = self.encode(x)
-        z = self.reparameterize(mu_latent, logvar_latent)
-        mu_x = self.decode(z)
-        return mu_x, mu_latent, logvar_latent
-
-
 # # Pretrain VAE First
 
-# In[23]:
+# In[15]:
 
 
 pretrain_vae = VAE(input_size, hidden_size, z_size)
@@ -435,96 +203,34 @@ pretrain_vae_optimizer = torch.optim.Adam(pretrain_vae.parameters(),
                                             betas = (b1,b2))
 
 
-# In[24]:
-
-
-def train(df, model, optimizer, epoch):
-    model.train()
-    train_loss = 0
-    permutations = torch.randperm(df.shape[0])
-    for i in range(math.ceil(len(df)/batch_size)):
-        batch_ind = permutations[i * batch_size : (i+1) * batch_size]
-        batch_data = df[batch_ind, :]
-        
-        optimizer.zero_grad()
-        mu_x, mu_latent, logvar_latent = model(batch_data)
-        loss = loss_function_per_autoencoder(batch_data, mu_x, mu_latent, logvar_latent)
-        loss.backward()
-        train_loss += loss.item()
-        optimizer.step()
-        
-        if i % log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, i * len(batch_data), len(df),
-                100. * i * len(batch_data)/ len(df),
-                loss.item() / len(batch_data)))
-
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
-          epoch, train_loss / len(df)))
-    
-    
-
-
-# In[25]:
+# In[16]:
 
 
 for epoch in range(1, n_epochs + 1):
-        train(train_data, pretrain_vae, pretrain_vae_optimizer, epoch)
-        test(test_data, pretrain_vae, epoch)
+        train(train_data, pretrain_vae, pretrain_vae_optimizer, epoch, batch_size)
+        test(test_data, pretrain_vae, epoch, batch_size)
 
 
-# In[31]:
+# In[ ]:
 
 
 quick_model_summary(pretrain_vae, train_data, test_data, 0.1)
 
 
-# In[28]:
+# In[ ]:
 
 
 for p in pretrain_vae.parameters():
     p.requires_grad = False
 
 
-# In[28]:
+# In[ ]:
 
 
 pretrain_vae.requires_grad_(False)
 
 
 # ## Train Gumbel with the Pre-Trained VAE
-
-# In[210]:
-
-
-def train_pre_trained(df, model, optimizer, epoch, pretrained_model):
-    model.train()
-    train_loss = 0
-    permutations = torch.randperm(df.shape[0])
-    for i in range(math.ceil(len(df)/batch_size)):
-        batch_ind = permutations[i * batch_size : (i+1) * batch_size]
-        batch_data = df[batch_ind, :]
-        
-        optimizer.zero_grad()
-        mu_x, mu_latent, logvar_latent = model(batch_data)
-        with torch.no_grad():
-            _, mu_latent_2, logvar_latent_2 = pretrained_model(batch_data)
-        
-        loss = loss_function_per_autoencoder(batch_data, mu_x, mu_latent, logvar_latent)
-        loss += 10*F.mse_loss(mu_latent, mu_latent_2, reduction = 'sum')
-        loss.backward()
-        train_loss += loss.item()
-        optimizer.step()
-        
-        if i % log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, i * len(batch_data), len(df),
-                100. * i * len(batch_data)/ len(df),
-                loss.item() / len(batch_data)))
-
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
-          epoch, train_loss / len(df)))
-
 
 # In[211]:
 
@@ -650,8 +356,9 @@ vae_gumbel_with_pre_optimizer = torch.optim.Adam(vae_gumbel_with_pre.parameters(
 
 
 for epoch in range(1, n_epochs + 1):
-        train_pre_trained(train_data, vae_gumbel_with_pre, vae_gumbel_with_pre_optimizer, epoch, pretrain_vae)
-        test(test_data, vae_gumbel_with_pre, epoch)
+        train_pre_trained(train_data, vae_gumbel_with_pre, vae_gumbel_with_pre_optimizer, 
+                          epoch, pretrain_vae, batch_size)
+        test(test_data, vae_gumbel_with_pre, epoch, batch_size)
 
 
 # In[217]:
@@ -661,63 +368,6 @@ quick_model_summary(vae_gumbel_with_pre, train_data, test_data, 0.1)
 
 
 # # Joint Training
-
-# In[218]:
-
-
-# model 1 should be vanilla
-
-def train_joint(df, model1, model2, optimizer, epoch):
-    model1.train()
-    model2.train()
-    train_loss = 0
-    permutations = torch.randperm(df.shape[0])
-    for i in range(math.ceil(len(df)/batch_size)):
-        batch_ind = permutations[i * batch_size : (i+1) * batch_size]
-        batch_data = df[batch_ind, :]
-        
-        optimizer.zero_grad()
-
-        
-        loss_vae_1, loss_vae_2, joint_kld_loss = loss_function_joint(batch_data, model1, model2)
-        loss = (loss_vae_1 + loss_vae_2 + 1000 * joint_kld_loss)
-        loss.backward()
-        
-        train_loss += loss.item()
-        
-        optimizer.step()
-        
-        if i % log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, i * len(batch_data), len(df),
-                100. * i * len(batch_data)/ len(df),
-                loss.item() / len(batch_data)))
-
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
-          epoch, train_loss / len(df)))
-
-
-# In[219]:
-
-
-def test_joint(df, model1, model2, epoch):
-    model1.eval()
-    model2.eval()
-    test_loss = 0
-    inds = np.arange(df.shape[0])
-    with torch.no_grad():
-        for i in range(math.ceil(len(df)/batch_size)):
-            batch_ind = inds[i * batch_size : (i+1) * batch_size]
-            batch_data = df[batch_ind, :]
-            batch_data = batch_data.to(device)
-            loss_vae_1, loss_vae_2, joint_kld_loss = loss_function_joint(batch_data, model1, model2)
-        
-            test_loss += (loss_vae_1 + loss_vae_2 + 1000 * joint_kld_loss).item()
-
-
-    test_loss /= len(df)
-    print('====> Test set loss: {:.4f}'.format(test_loss))
-
 
 # In[220]:
 
@@ -738,8 +388,8 @@ joint_optimizer = torch.optim.Adam(list(joint_vanilla_vae.parameters()) + list(j
 
 
 for epoch in range(1, n_epochs + 1):
-    train_joint(train_data, joint_vanilla_vae, joint_vae_gumbel, joint_optimizer, epoch)
-    test_joint(test_data, joint_vanilla_vae, joint_vae_gumbel, epoch)
+    train_joint(train_data, joint_vanilla_vae, joint_vae_gumbel, joint_optimizer, epoch, batch_size)
+    test_joint(test_data, joint_vanilla_vae, joint_vae_gumbel, epoch, batch_size)
 
 
 # In[224]:
@@ -890,8 +540,9 @@ for k in k_all:
                                                 betas = (b1,b2))
     
         for epoch in (1, n_epochs + 1):
-            train_pre_trained(train_data, vae_gumbel_with_pre, vae_gumbel_with_pre_optimizer, epoch, pretrain_vae)
-            train_joint(train_data, joint_vanilla_vae, joint_vae_gumbel, joint_optimizer, epoch)
+            train_pre_trained(train_data, vae_gumbel_with_pre, vae_gumbel_with_pre_optimizer, 
+                              epoch, pretrain_vae, batch_size)
+            train_joint(train_data, joint_vanilla_vae, joint_vae_gumbel, joint_optimizer, epoch, batch_size)
     
         test_pred_pre = vae_gumbel_with_pre(test_data)[0]
         test_pred_pre[test_pred_pre < 0.09] = 0 
