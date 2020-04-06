@@ -74,8 +74,7 @@ cuda = True if torch.cuda.is_available() else False
 
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
-#device = torch.device("cuda:0" if cuda else "cpu")
-device = 'cpu'
+device = torch.device("cuda:0" if cuda else "cpu")
 
 
 # In[15]:
