@@ -9,6 +9,9 @@ from torch.nn import functional as F
 import math
 
 log_interval = 20
+
+EPSILON = 1e-10
+
 def make_encoder(input_size, hidden_layer_size, z_size):
 
     main_enc = nn.Sequential(
