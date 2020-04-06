@@ -232,116 +232,6 @@ pretrain_vae.requires_grad_(False)
 
 # ## Train Gumbel with the Pre-Trained VAE
 
-# In[211]:
-
-
-def gumbel_keys(w):
-    # sample some gumbels
-    uniform = (1.0 - EPSILON) * torch.rand_like(w) + EPSILON
-    z = torch.log(-torch.log(uniform))
-    w = w + z
-    return w
-
-
-#equations 3 and 4 and 5
-def continuous_topk(w, k, t, separate=False):
-    softmax = nn.Softmax(dim = -1)
-    khot_list = []
-    onehot_approx = torch.zeros_like(w, dtype = torch.float32)
-    for i in range(k):
-        ### conver the following into pytorch
-        #khot_mask = tf.maximum(1.0 - onehot_approx, EPSILON)
-        max_mask = 1 - onehot_approx < EPSILON
-        khot_mask = 1 - onehot_approx
-        khot_mask[max_mask] = EPSILON
-        
-        w += torch.log(khot_mask)
-        #onehot_approx = tf.nn.softmax(w / t, axis=-1)
-        onehot_approx = softmax(w/t)
-        khot_list.append(onehot_approx)
-        gc.collect()
-        torch.cuda.empty_cache()
-    if separate:
-        return torch.stack(khot_list)
-    else:
-        return torch.sum(torch.stack(khot_list), dim = 0) 
-
-
-def sample_subset(w, k, t=0.1):
-    '''
-    Args:
-        w (Tensor): Float Tensor of weights for each element. In gumbel mode
-            these are interpreted as log probabilities
-        k (int): number of elements in the subset sample
-        t (float): temperature of the softmax
-    '''
-    w = gumbel_keys(w)
-    return continuous_topk(w, k, t)
-
-
-# In[212]:
-
-
-# L1 VAE model we are loading
-class VAE_Gumbel(nn.Module):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.1):
-        super(VAE_Gumbel, self).__init__()
-        
-        self.k = k
-        self.t = t
-        
-        self.weight_creator = nn.Sequential(
-            nn.Linear(input_size, hidden_layer_size),
-            nn.BatchNorm1d(hidden_layer_size),
-            nn.ReLU(),
-            nn.Linear(hidden_layer_size, input_size)
-        )
-        
-        #self.fc1 = nn.Linear(input_size, hidden_layer_size)
-        #self.fcextra = nn.Linear(hidden_layer_size, hidden_layer_size)
-        self.fc21 = nn.Linear(hidden_layer_size, z_size)
-        self.fc22 = nn.Linear(hidden_layer_size, z_size)
-        self.fc3 = nn.Linear(z_size, hidden_layer_size)
-        self.fc4 = nn.Linear(hidden_layer_size, input_size)
-        
-        self.encoder = nn.Sequential(
-            nn.Linear(input_size, 2*hidden_layer_size),
-            nn.BatchNorm1d(2*hidden_layer_size),
-            nn.LeakyReLU(),
-            nn.Linear(2*hidden_layer_size, hidden_layer_size),
-            nn.BatchNorm1d(hidden_layer_size),
-            nn.LeakyReLU(),
-            nn.Linear(hidden_layer_size, hidden_layer_size),
-            nn.BatchNorm1d(hidden_layer_size),
-            nn.LeakyReLU()
-        )
-        
-        self.fc3_bn = nn.BatchNorm1d(hidden_layer_size)
-
-    def encode(self, x):
-        w = self.weight_creator(x)
-        subset_indices = sample_subset(w, self.k, self.t)
-        x = x * subset_indices
-        h1 = self.encoder(x)
-        return self.fc21(h1), self.fc22(h1)
-
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5*logvar)
-        eps = torch.randn_like(std)
-        return mu + eps*std
-
-    def decode(self, z):
-        h = F.leaky_relu(self.fc3_bn(self.fc3(z)))
-        mu_x = self.fc4(h)
-        return torch.sigmoid(mu_x)
-
-    def forward(self, x):
-        mu_latent, logvar_latent = self.encode(x)
-        z = self.reparameterize(mu_latent, logvar_latent)
-        mu_x = self.decode(z)
-        return mu_x, mu_latent, logvar_latent
-
-
 # In[213]:
 
 
@@ -502,7 +392,7 @@ del vae_gumbel_with_pre
 # In[61]:
 
 
-k_all = [5, 10, 25, 50, 75, 100, 150, 250]#, 500, 1000, 2000, 3000]
+k_all = [5, 10, 25, 50, 75, 100, 150]#, 250, 500, 1000, 2000, 3000]
 n_trials = 10
 
 
