@@ -349,6 +349,7 @@ def test_joint(df, model1, model2, epoch, batch_size):
 
 
 def quick_model_summary(model, train_data, test_data, threshold, batch_size):
+    input_size = train_data.shape[1]
     with torch.no_grad():
         train_pred = model(train_data[0:batch_size, :])[0]
         train_pred[train_pred < threshold] = 0 
