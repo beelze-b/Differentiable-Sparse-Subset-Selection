@@ -56,8 +56,8 @@ channels = 1
 
 
 
-z_size = 250
-hidden_size = 1500
+z_size = 500
+hidden_size = 1000
 
 n = 28 * 28
 
