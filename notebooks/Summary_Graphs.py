@@ -183,7 +183,7 @@ print(np.histogram(model_l1_diag.diag.abs().clone().detach().cpu().numpy(), bins
 # In[ ]:
 
 
-quick_model_summary(model_l1_diag, train_data, test_data, 0.1)
+quick_model_summary(model_l1_diag, train_data, test_data, 0.1, batch_size)
 
 
 # First try Pretrained VAE and then gumble trick with it
@@ -214,7 +214,7 @@ for epoch in range(1, n_epochs + 1):
 # In[ ]:
 
 
-quick_model_summary(pretrain_vae, train_data, test_data, 0.1)
+quick_model_summary(pretrain_vae, train_data, test_data, 0.1, batch_size)
 
 
 # In[ ]:
@@ -364,7 +364,7 @@ for epoch in range(1, n_epochs + 1):
 # In[217]:
 
 
-quick_model_summary(vae_gumbel_with_pre, train_data, test_data, 0.1)
+quick_model_summary(vae_gumbel_with_pre, train_data, test_data, 0.1, batch_size)
 
 
 # # Joint Training
@@ -395,7 +395,7 @@ for epoch in range(1, n_epochs + 1):
 # In[224]:
 
 
-quick_model_summary(joint_vae_gumbel, train_data, test_data, 0.1)
+quick_model_summary(joint_vae_gumbel, train_data, test_data, 0.1, batch_size)
 
 
 # In[ ]:

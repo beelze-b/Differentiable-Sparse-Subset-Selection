@@ -32,8 +32,11 @@ def make_encoder(input_size, hidden_layer_size, z_size):
 def make_bernoulli_decoder(input_size, hidden_size, z_size):
 
     main_dec = nn.Sequential(
-            nn.Linear(z_size, 2*hidden_size),
-            nn.BatchNorm1d(2*hidden_size),
+            nn.Linear(z_size, hidden_size),
+            nn.BatchNorm1d(hidden_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_size, 2* hidden_size),
+            nn.BatchNorm1d(2* hidden_size),
             nn.LeakyReLU(),
             nn.Linear(2 * hidden_size, 3 * hidden_size),
             nn.BatchNorm1d(3 * hidden_size),
@@ -345,7 +348,7 @@ def test_joint(df, model1, model2, epoch, batch_size):
     print('====> Test set loss: {:.4f}'.format(test_loss))
 
 
-def quick_model_summary(model, train_data, test_data, threshold):
+def quick_model_summary(model, train_data, test_data, threshold, batch_size):
     with torch.no_grad():
         train_pred = model(train_data[0:batch_size, :])[0]
         train_pred[train_pred < threshold] = 0 
