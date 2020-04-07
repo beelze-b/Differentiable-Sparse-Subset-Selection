@@ -448,8 +448,8 @@ for k in k_all:
                 test_pred_pre[test_pred_pre < 0.09] = 0
                 test_pred_joint[test_pred_joint < 0.09] = 0
                 
-                test_loss_pre += F.binary_cross_entropy(test_pred_pre, test_data, reduction='sum')
-                test_loss_joint += F.binary_cross_entropy(test_pred_joint, test_data, reduction='sum')
+                test_loss_pre += F.binary_cross_entropy(test_pred_pre, batch_data, reduction='sum')
+                test_loss_joint += F.binary_cross_entropy(test_pred_joint, batch_data, reduction='sum')
                 
                 del batch_data
                 del test_pred_pre
