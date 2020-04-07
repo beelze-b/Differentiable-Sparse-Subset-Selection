@@ -8,6 +8,8 @@ from torch.nn import functional as F
 
 import math
 
+import gc
+
 log_interval = 20
 
 EPSILON = 1e-10
@@ -322,13 +324,13 @@ def test(df, model, epoch, batch_size):
         for i in range(math.ceil(len(df)/batch_size)):
             batch_ind = inds[i * batch_size : (i+1) * batch_size]
             batch_data = df[batch_ind, :]
-            batch_data = batch_data
             mu_x, mu_latent, logvar_latent = model(batch_data)
             test_loss += loss_function_per_autoencoder(batch_data, mu_x, mu_latent, logvar_latent).item()
 
 
     test_loss /= len(df)
     print('====> Test set loss: {:.4f}'.format(test_loss))
+    return test_loss
 
 # test jointly two auto encoders trained together
 # model1 is vanilla vae
@@ -341,7 +343,6 @@ def test_joint(df, model1, model2, epoch, batch_size):
         for i in range(math.ceil(len(df)/batch_size)):
             batch_ind = inds[i * batch_size : (i+1) * batch_size]
             batch_data = df[batch_ind, :]
-            batch_data = batch_data
             loss_vae_1, loss_vae_2, joint_kld_loss = loss_function_joint(batch_data, model1, model2)
         
             test_loss += (loss_vae_1 + loss_vae_2 + 1000 * joint_kld_loss).item()
@@ -349,6 +350,7 @@ def test_joint(df, model1, model2, epoch, batch_size):
 
     test_loss /= len(df)
     print('====> Test set loss: {:.4f}'.format(test_loss))
+    return test_loss
 
 
 def quick_model_summary(model, train_data, test_data, threshold, batch_size):
