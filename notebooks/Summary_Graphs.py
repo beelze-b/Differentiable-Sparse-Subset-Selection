@@ -452,9 +452,6 @@ for k in k_all:
                 test_loss_joint += F.binary_cross_entropy(test_pred_joint, batch_data, reduction='sum')
                 
                 del batch_data
-                del test_pred_pre
-                del test_loss_joint
-
             
         test_loss_pre /= len(test_df)
         test_loss_joint /= len(test_df)
