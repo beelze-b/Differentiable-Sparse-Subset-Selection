@@ -433,18 +433,33 @@ for k in k_all:
                               epoch, pretrain_vae, batch_size)
             train_joint(train_data, joint_vanilla_vae, joint_vae_gumbel, joint_optimizer, epoch, batch_size)
     
-        test_pred_pre = vae_gumbel_with_pre(test_data)[0]
-        test_pred_pre[test_pred_pre < 0.09] = 0 
-    
-        test_pred_joint = joint_vanilla_vae(test_data)[0]
-        test_pred_joint[test_pred_joint < 0.09] = 0
-    
-        with torch.no_grad():
-            mae_pre = F.binary_cross_entropy(test_pred_pre, test_data, reduction='sum') / len(test_data) / input_size
-            mae_joint = F.binary_cross_entropy(test_pred_joint, test_data, reduction='sum') / len(test_data) / input_size
+        test_loss_pre = 0
+        test_loss_joint = 0
         
-        current_k_pre_losses.append(mae_pre.cpu().item())
-        current_k_joint_losses.append(mae_joint.cpu().item())
+        inds = np.arange(test_data.shape[0])
+        with torch.no_grad():
+            for i in range(math.ceil(len(test_data)/batch_size)):
+                batch_ind = inds[i * batch_size : (i+1) * batch_size]
+                batch_data = test_data[batch_ind, :]
+                
+                test_pred_pre = vae_gumbel_with_pre(batch_data)[0]
+                test_pred_joint = joint_vae_gumbel(batch_data)[0]
+                
+                test_pred_pre[test_pred_pre < 0.09] = 0
+                test_pred_joint[test_pred_joint < 0.09] = 0
+                
+                test_loss_pre += F.binary_cross_entropy(test_pred_pre, test_data, reduction='sum')
+                test_loss_joint += F.binary_cross_entropy(test_pred_joint, test_data, reduction='sum')
+                
+                del batch_data
+                del test_pred_pre
+                del test_loss_joint
+
+            
+        test_loss_pre /= len(test_df)
+        test_loss_joint /= len(test_df)
+        current_k_pre_losses.append(test_loss_pre.cpu().item())
+        current_k_joint_losses.append(test_loss_joint.cpu().item())
         
         # for freeing memory faster
         del vae_gumbel_with_pre
@@ -452,8 +467,6 @@ for k in k_all:
         del joint_vanilla_vae
         del joint_vae_gumbel
         del joint_optimizer
-        del test_pred_pre
-        del test_pred_joint
 
         torch.cuda.empty_cache()
         
