@@ -378,7 +378,7 @@ del joint_vanilla_vae
 # In[30]:
 
 
-def graph_activations(test_data, model, title, file):
+def graph_activations(test_data, model, title, fname):
     preds, _, _ = model(test_data)
     
     preds[preds < 0.09] = 0
@@ -398,13 +398,13 @@ def graph_activations(test_data, model, title, file):
     plt.ylabel("Average Activation of Feature")
     
     plt.legend()
-    plt.savefig(file)
+    plt.savefig(fname)
 
 
 # In[31]:
 
 
-def graph_sparsity(test_data, model, title, file):
+def graph_sparsity(test_data, model, title, fname):
     preds, _, _ = model(test_data)
     
     preds[preds < 0.15] = 0
@@ -426,7 +426,7 @@ def graph_sparsity(test_data, model, title, file):
     plt.ylabel("Proportion of Test Set Feature Was not Sparse")
     
     plt.legend()
-    plt.savefig(file)
+    plt.savefig(fname)
 
 
 # In[32]:
