@@ -316,7 +316,7 @@ del joint_vanilla_vae
 # 
 # ## Graph the mean activations at k = 50
 
-# In[29]:
+# In[21]:
 
 
 def graph_activations(test_data, model, title, file):
@@ -342,7 +342,7 @@ def graph_activations(test_data, model, title, file):
     plt.savefig(file)
 
 
-# In[30]:
+# In[22]:
 
 
 def graph_sparsity(test_data, model, title, file):
@@ -370,7 +370,7 @@ def graph_sparsity(test_data, model, title, file):
     plt.savefig(file)
 
 
-# In[31]:
+# In[23]:
 
 
 graph_activations(test_data, model_l1_diag, 'VAE L1 Preds vs Test Data Means', 
