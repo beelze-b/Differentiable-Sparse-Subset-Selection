@@ -171,7 +171,7 @@ def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     KLD = -0.5 * torch.sum(1 + logvar_latent - mu_latent.pow(2) - logvar_latent.exp())
     #print(loss_rec.item(), KLD.item())
-    return loss_rec + 10 * KLD
+    return loss_rec + 1 * KLD
 
 # KLD of D(P_1||P_2) where P_i are Gaussians, assuming diagonal
 def kld_joint_autoencoders(mu_1, mu_2, logvar_1, logvar_2):
@@ -269,7 +269,7 @@ def train_joint(df, model1, model2, optimizer, epoch, batch_size):
 
         
         loss_vae_1, loss_vae_2, joint_kld_loss = loss_function_joint(batch_data, model1, model2)
-        loss = (loss_vae_1 + loss_vae_2 + 100 * joint_kld_loss)
+        loss = (loss_vae_1 + loss_vae_2 + 10 * joint_kld_loss)
         loss.backward()
         
         train_loss += loss.item()

@@ -22,6 +22,8 @@ import numpy as np
 from torchvision.utils import save_image
 
 import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
+
 import math
 
 import gc
@@ -53,8 +55,8 @@ b1 = 0.9
 b2 = 0.999
 
 
-z_size = 50
-hidden_size = 100
+z_size = 100
+hidden_size = 500
 
 
 # from running
@@ -101,6 +103,22 @@ data= a['zeisel_data'].T
 N,d=data.shape
 
 
+#load labels (first level of the hierarchy) from file
+a = sio.loadmat(BASE_PATH_DATA + 'zeisel/zeisel_labels1.mat')
+l_aux = a['zeisel_labels1']
+l_0=[l_aux[i][0] for i in range(l_aux.shape[0])]
+#load labels (second level of the hierarchy) from file
+a = sio.loadmat(BASE_PATH_DATA + 'zeisel/zeisel_labels2.mat')
+l_aux = a['zeisel_labels2']
+l_1=[l_aux[i][0] for i in range(l_aux.shape[0])]
+#construct an array with hierarchy labels
+labels=np.array([l_0, l_1])
+
+# load names from file 
+a = sio.loadmat(BASE_PATH_DATA + 'zeisel/zeisel_names.mat')
+names=np.array([a['zeisel_names'][i][0][0] for i in range(N)])
+
+
 # In[10]:
 
 
@@ -142,13 +160,20 @@ test_data = Tensor(test_data).to(device)
 # In[14]:
 
 
+train_labels = names[slices[:upto]]
+test_labels = names[slices[upto:]]
+
+
+# In[15]:
+
+
 print(train_data.std(dim = 0).mean())
 print(test_data.std(dim = 0).mean())
 
 
 # Does L1 work if we normalize after every step?
 
-# In[15]:
+# In[37]:
 
 
 model_l1_diag = VAE_l1_diag(input_size, hidden_size, z_size)
@@ -159,7 +184,7 @@ model_l1_optimizer = torch.optim.Adam(model_l1_diag.parameters(),
                                             betas = (b1,b2))
 
 
-# In[16]:
+# In[38]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -167,7 +192,7 @@ for epoch in range(1, n_epochs + 1):
         test(test_data, model_l1_diag, epoch, batch_size)
 
 
-# In[17]:
+# In[39]:
 
 
 bins = [10**(-i) for i in range(10)]
@@ -176,22 +201,56 @@ bins += [10]
 print(np.histogram(model_l1_diag.diag.abs().clone().detach().cpu().numpy(), bins = bins))
 
 
-# In[18]:
+# In[49]:
 
 
 quick_model_summary(model_l1_diag, train_data, test_data, 0.15, batch_size)
 
 
-# In[19]:
+# In[41]:
 
 
 model_l1_diag(test_data[0:64])[0].std(dim = 0)
 
 
-# In[20]:
+# In[42]:
 
 
 test_data[0:64].std(dim = 0)
+
+
+# Let's see latent representations real quick
+
+# In[43]:
+
+
+test_latent = model_l1_diag(test_data)[1]
+
+
+# In[44]:
+
+
+test_latent = test_latent.clone().detach().cpu().numpy()
+
+
+# In[46]:
+
+
+test_latent_clusters = TSNE(n_components=2, perplexity=30).fit_transform(test_latent)
+
+
+# In[47]:
+
+
+fig, ax = plt.subplots(figsize=(10, 5))
+scatter_x = test_latent_clusters[:,0]
+scatter_y = test_latent_clusters[:,1]
+for g in np.unique(test_labels):
+    ix = np.where(test_labels == g)
+    ax.scatter(scatter_x[ix], scatter_y[ix], label = g, s = 100)
+ax.legend(loc=(1.05, 0.5))
+plt.tight_layout()
+plt.show()
 
 
 # **First try Pretrained VAE and then gumble trick with it**
@@ -316,7 +375,7 @@ del joint_vanilla_vae
 # 
 # ## Graph the mean activations at k = 50
 
-# In[21]:
+# In[30]:
 
 
 def graph_activations(test_data, model, title, file):
@@ -342,7 +401,7 @@ def graph_activations(test_data, model, title, file):
     plt.savefig(file)
 
 
-# In[22]:
+# In[31]:
 
 
 def graph_sparsity(test_data, model, title, file):
@@ -370,7 +429,7 @@ def graph_sparsity(test_data, model, title, file):
     plt.savefig(file)
 
 
-# In[23]:
+# In[32]:
 
 
 graph_activations(test_data, model_l1_diag, 'VAE L1 Preds vs Test Data Means', 
