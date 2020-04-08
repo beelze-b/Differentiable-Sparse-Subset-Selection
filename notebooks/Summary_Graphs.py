@@ -3,7 +3,7 @@
 
 # Let's just get a quick sparsity overview of the methods so far.
 
-# In[10]:
+# In[1]:
 
 
 import torch
@@ -29,37 +29,33 @@ import gc
 from utils import *
 
 
-# In[11]:
+# In[2]:
 
 
 import os
 from os import listdir
 
 
-# In[12]:
+# In[3]:
 
 
 #BASE_PATH_DATA = '../data/'
 BASE_PATH_DATA = '/scratch/ns3429/sparse-subset/data/'
 
 
-# In[13]:
+# In[4]:
 
 
 n_epochs = 25
 batch_size = 64
-lr = 0.001
+lr = 0.0001
 b1 = 0.9
 b2 = 0.999
-img_size = 28
-channels = 1
 
 
+z_size = 50
+hidden_size = 100
 
-z_size = 500
-hidden_size = 1000
-
-n = 28 * 28
 
 # from running
 # EPSILON = np.finfo(tf.float32.as_numpy_dtype).tiny
@@ -67,7 +63,7 @@ n = 28 * 28
 EPSILON = 1e-10
 
 
-# In[14]:
+# In[5]:
 
 
 cuda = True if torch.cuda.is_available() else False
@@ -75,28 +71,29 @@ cuda = True if torch.cuda.is_available() else False
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
 device = torch.device("cuda:0" if cuda else "cpu")
+#device = 'cpu'
 
 
-# In[15]:
+# In[6]:
 
 
 print("Device")
 print(device)
 
 
-# In[16]:
+# In[7]:
 
 
 np.random.seed(100)
 
 
-# In[17]:
+# In[8]:
 
 
 import scipy.io as sio
 
 
-# In[18]:
+# In[9]:
 
 
 a = sio.loadmat(BASE_PATH_DATA + 'zeisel/zeisel_data.mat')
@@ -104,7 +101,7 @@ data= a['zeisel_data'].T
 N,d=data.shape
 
 
-# In[19]:
+# In[10]:
 
 
 for i in range(d):
@@ -117,19 +114,19 @@ for i in range(d):
     data[:, i] = (data[:, i] - mi) / (ma - mi)
 
 
-# In[20]:
+# In[11]:
 
 
 data[data!=0].min()
 
 
-# In[21]:
+# In[12]:
 
 
 input_size = d
 
 
-# In[22]:
+# In[13]:
 
 
 slices = np.random.permutation(np.arange(data.shape[0]))
@@ -142,7 +139,7 @@ train_data = Tensor(train_data).to(device)
 test_data = Tensor(test_data).to(device)
 
 
-# In[23]:
+# In[14]:
 
 
 print(train_data.std(dim = 0).mean())
@@ -151,7 +148,7 @@ print(test_data.std(dim = 0).mean())
 
 # Does L1 work if we normalize after every step?
 
-# In[24]:
+# In[15]:
 
 
 model_l1_diag = VAE_l1_diag(input_size, hidden_size, z_size)
@@ -162,7 +159,7 @@ model_l1_optimizer = torch.optim.Adam(model_l1_diag.parameters(),
                                             betas = (b1,b2))
 
 
-# In[25]:
+# In[16]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -170,7 +167,7 @@ for epoch in range(1, n_epochs + 1):
         test(test_data, model_l1_diag, epoch, batch_size)
 
 
-# In[ ]:
+# In[17]:
 
 
 bins = [10**(-i) for i in range(10)]
@@ -179,19 +176,31 @@ bins += [10]
 print(np.histogram(model_l1_diag.diag.abs().clone().detach().cpu().numpy(), bins = bins))
 
 
-# In[ ]:
+# In[18]:
 
 
-quick_model_summary(model_l1_diag, train_data, test_data, 0.1, batch_size)
+quick_model_summary(model_l1_diag, train_data, test_data, 0.15, batch_size)
 
 
-# First try Pretrained VAE and then gumble trick with it
+# In[19]:
+
+
+model_l1_diag(test_data[0:64])[0].std(dim = 0)
+
+
+# In[20]:
+
+
+test_data[0:64].std(dim = 0)
+
+
+# **First try Pretrained VAE and then gumble trick with it**
 # 
-# Then try joint training VAE and Gumbel Model
+# **Then try joint training VAE and Gumbel Model**
 
 # # Pretrain VAE First
 
-# In[15]:
+# In[21]:
 
 
 pretrain_vae = VAE(input_size, hidden_size, z_size)
@@ -202,7 +211,7 @@ pretrain_vae_optimizer = torch.optim.Adam(pretrain_vae.parameters(),
                                             betas = (b1,b2))
 
 
-# In[16]:
+# In[22]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -210,20 +219,26 @@ for epoch in range(1, n_epochs + 1):
         test(test_data, pretrain_vae, epoch, batch_size)
 
 
-# In[ ]:
+# In[23]:
 
 
-quick_model_summary(pretrain_vae, train_data, test_data, 0.1, batch_size)
+quick_model_summary(pretrain_vae, train_data, test_data, 0.15, batch_size)
 
 
-# In[ ]:
+# In[24]:
+
+
+pretrain_vae(test_data[0:64])[0]
+
+
+# In[25]:
 
 
 for p in pretrain_vae.parameters():
     p.requires_grad = False
 
 
-# In[ ]:
+# In[26]:
 
 
 pretrain_vae.requires_grad_(False)
@@ -231,7 +246,7 @@ pretrain_vae.requires_grad_(False)
 
 # ## Train Gumbel with the Pre-Trained VAE
 
-# In[213]:
+# In[27]:
 
 
 vae_gumbel_with_pre = VAE_Gumbel(input_size, hidden_size, z_size, k = 50)
@@ -241,7 +256,7 @@ vae_gumbel_with_pre_optimizer = torch.optim.Adam(vae_gumbel_with_pre.parameters(
                                                 betas = (b1,b2))
 
 
-# In[214]:
+# In[28]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -250,15 +265,15 @@ for epoch in range(1, n_epochs + 1):
         test(test_data, vae_gumbel_with_pre, epoch, batch_size)
 
 
-# In[217]:
+# In[ ]:
 
 
-quick_model_summary(vae_gumbel_with_pre, train_data, test_data, 0.1, batch_size)
+quick_model_summary(vae_gumbel_with_pre, train_data, test_data, 0.15, batch_size)
 
 
 # # Joint Training
 
-# In[220]:
+# In[ ]:
 
 
 joint_vanilla_vae = VAE(input_size, hidden_size, z_size)
@@ -273,7 +288,7 @@ joint_optimizer = torch.optim.Adam(list(joint_vanilla_vae.parameters()) + list(j
                                                 betas = (b1,b2))
 
 
-# In[221]:
+# In[ ]:
 
 
 for epoch in range(1, n_epochs + 1):
@@ -281,10 +296,10 @@ for epoch in range(1, n_epochs + 1):
     test_joint(test_data, joint_vanilla_vae, joint_vae_gumbel, epoch, batch_size)
 
 
-# In[224]:
+# In[ ]:
 
 
-quick_model_summary(joint_vae_gumbel, train_data, test_data, 0.1, batch_size)
+quick_model_summary(joint_vae_gumbel, train_data, test_data, 0.15, batch_size)
 
 
 # In[ ]:
@@ -301,7 +316,7 @@ del joint_vanilla_vae
 # 
 # ## Graph the mean activations at k = 50
 
-# In[67]:
+# In[ ]:
 
 
 def graph_activations(test_data, model, title, file):
@@ -319,7 +334,7 @@ def graph_activations(test_data, model, title, file):
     plt.plot(x, test_activations.clone().detach().cpu().numpy(), label = 'Average Test Data')
     
     plt.title(title)
-    plt.ylim([-0.1, 1])
+    plt.ylim([-0.1, 1.1])
     plt.xlabel("Feature Index")
     plt.ylabel("Average Activation of Feature")
     
@@ -333,8 +348,8 @@ def graph_activations(test_data, model, title, file):
 def graph_sparsity(test_data, model, title, file):
     preds, _, _ = model(test_data)
     
-    preds[preds < 0.09] = 0
-    preds[preds >= 0.09] = 1
+    preds[preds < 0.15] = 0
+    preds[preds >= 0.15] = 1
     
     pred_count = preds.sum(dim = 0) / len(test_data)
     
@@ -347,7 +362,7 @@ def graph_sparsity(test_data, model, title, file):
     plt.plot(x, test_count.clone().detach().cpu().numpy(), label = 'Count NonZero Test Data')
     
     plt.title(title)
-    plt.ylim([-0.1, 1])
+    plt.ylim([-0.1, 1.1])
     plt.xlabel("Feature Index")
     plt.ylabel("Proportion of Test Set Feature Was not Sparse")
     
@@ -355,40 +370,40 @@ def graph_sparsity(test_data, model, title, file):
     plt.savefig(file)
 
 
-# In[69]:
+# In[ ]:
 
 
 graph_activations(test_data, model_l1_diag, 'Joint Gumbel vs Test Means', 
-                  '/scratch/ns3429/sparse-subset/vae_l1_activations.png')
+                  BASE_PATH_DATA + 'vae_l1_activations.png')
 graph_sparsity(test_data, model_l1_diag, 'Joint Gumbel vs Test Sparsity', 
-                  '/scratch/ns3429/sparse-subset/vae_l1_sparsity.png')
+                  BASE_PATH_DATA + 'vae_l1_sparsity.png')
 
 del model_l1_diag
 
 
-# In[32]:
+# In[ ]:
 
 
 graph_activations(test_data, joint_vae_gumbel, 'Joint Gumbel vs Test Means', 
-                  '/scratch/ns3429/sparse-subset/joint_gumbel_activations.png')
+                  BASE_PATH_DATA + 'joint_gumbel_activations.png')
 graph_sparsity(test_data, joint_vae_gumbel, 'Joint Gumbel vs Test Sparsity', 
-                  '/scratch/ns3429/sparse-subset/joint_gumbel_sparsity.png')
+                  BASE_PATH_DATA + 'joint_gumbel_sparsity.png')
 
 del joint_vae_gumbel
 
 
-# In[228]:
+# In[ ]:
 
 
 graph_activations(test_data, vae_gumbel_with_pre, 'Gumbel Matching Pretrained VAE vs Test Means', 
-                  '/scratch/ns3429/sparse-subset/pretrained_gumbel_activations.png')
+                  BASE_PATH_DATA + 'pretrained_gumbel_activations.png')
 graph_sparsity(test_data, vae_gumbel_with_pre, 'Gumbel Matching Pretrained VAE vs Test Sparsity', 
-                  '/scratch/ns3429/sparse-subset/pretrained_gumbel_sparsity.png')
+                  BASE_PATH_DATA + 'pretrained_gumbel_sparsity.png')
 
 del vae_gumbel_with_pre
 
 
-# In[61]:
+# In[ ]:
 
 
 k_all = [5, 10, 25, 50, 75, 100, 150]#, 250, 500, 1000, 2000, 3000]
@@ -448,13 +463,13 @@ for k in k_all:
                 test_pred_pre[test_pred_pre < 0.09] = 0
                 test_pred_joint[test_pred_joint < 0.09] = 0
                 
-                test_loss_pre += F.binary_cross_entropy(test_pred_pre, batch_data, reduction='sum')
-                test_loss_joint += F.binary_cross_entropy(test_pred_joint, batch_data, reduction='sum')
+                test_loss_pre += F.binary_cross_entropy(test_pred_pre, batch_data, reduction='mean')
+                test_loss_joint += F.binary_cross_entropy(test_pred_joint, batch_data, reduction='mean')
                 
                 del batch_data
             
-        test_loss_pre /= len(test_df)
-        test_loss_joint /= len(test_df)
+        #test_loss_pre /= len(test_data)
+        #test_loss_joint /= len(test_data)
         current_k_pre_losses.append(test_loss_pre.cpu().item())
         current_k_joint_losses.append(test_loss_joint.cpu().item())
         
