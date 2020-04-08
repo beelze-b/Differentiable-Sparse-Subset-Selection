@@ -497,5 +497,5 @@ plt.xlabel('Sparsity Level (Number of Non-Zero Features)')
 plt.ylabel('Per Neuron Average BCE Loss')
 plt.legend()
 
-plt.savefig('/scratch/ns3429/sparse-subset/comparing_across_sparsity.png')
+plt.savefig(BASE_PATH_DATA + 'comparing_across_sparsity.png')
 
