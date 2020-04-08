@@ -316,7 +316,7 @@ del joint_vanilla_vae
 # 
 # ## Graph the mean activations at k = 50
 
-# In[ ]:
+# In[29]:
 
 
 def graph_activations(test_data, model, title, file):
@@ -342,7 +342,7 @@ def graph_activations(test_data, model, title, file):
     plt.savefig(file)
 
 
-# In[ ]:
+# In[30]:
 
 
 def graph_sparsity(test_data, model, title, file):
@@ -370,12 +370,12 @@ def graph_sparsity(test_data, model, title, file):
     plt.savefig(file)
 
 
-# In[ ]:
+# In[31]:
 
 
-graph_activations(test_data, model_l1_diag, 'Joint Gumbel vs Test Means', 
+graph_activations(test_data, model_l1_diag, 'VAE L1 Preds vs Test Data Means', 
                   BASE_PATH_DATA + 'vae_l1_activations.png')
-graph_sparsity(test_data, model_l1_diag, 'Joint Gumbel vs Test Sparsity', 
+graph_sparsity(test_data, model_l1_diag, 'VAE L1 Preds vs Test Data Sparsity', 
                   BASE_PATH_DATA + 'vae_l1_sparsity.png')
 
 del model_l1_diag
