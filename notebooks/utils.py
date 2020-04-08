@@ -17,15 +17,16 @@ EPSILON = 1e-10
 def make_encoder(input_size, hidden_layer_size, z_size):
 
     main_enc = nn.Sequential(
-            nn.Linear(input_size, 3*hidden_layer_size),
-            nn.BatchNorm1d(3*hidden_layer_size),
+            nn.Linear(input_size, 2*hidden_layer_size),
             nn.LeakyReLU(),
-            nn.Linear(3*hidden_layer_size, 2*hidden_layer_size),
-            nn.BatchNorm1d(2*hidden_layer_size),
+            #nn.BatchNorm1d(2*hidden_layer_size),
+            nn.Linear(2*hidden_layer_size, 1*hidden_layer_size),
             nn.LeakyReLU(),
-            nn.Linear(2*hidden_layer_size, hidden_layer_size),
-            nn.BatchNorm1d(hidden_layer_size),
+            nn.Linear(1*hidden_layer_size, 1*hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(1*hidden_layer_size, 1*hidden_layer_size),
             nn.LeakyReLU()
+            #nn.BatchNorm1d(1*hidden_layer_size),
         )
 
     enc_mean = nn.Linear(hidden_layer_size, z_size)
@@ -37,17 +38,14 @@ def make_encoder(input_size, hidden_layer_size, z_size):
 def make_bernoulli_decoder(input_size, hidden_size, z_size):
 
     main_dec = nn.Sequential(
-            nn.Linear(z_size, hidden_size),
-            nn.BatchNorm1d(hidden_size),
+            nn.Linear(z_size, 2*hidden_size),
+            #nn.BatchNorm1d(hidden_size),
+            #nn.LeakyReLU(),
+            #nn.Linear(hidden_size, 2* hidden_size),
             nn.LeakyReLU(),
-            nn.Linear(hidden_size, 2* hidden_size),
-            nn.BatchNorm1d(2* hidden_size),
-            nn.LeakyReLU(),
-            nn.Linear(2 * hidden_size, 3 * hidden_size),
-            nn.BatchNorm1d(3 * hidden_size),
-            nn.LeakyReLU(),
-            nn.Linear(3*hidden_size, input_size),
-            nn.BatchNorm1d(input_size),
+            #nn.BatchNorm1d(1* hidden_size),
+            nn.Linear(2*hidden_size, input_size),
+            #nn.BatchNorm1d(input_size),
             nn.Sigmoid()
         )
 
@@ -172,7 +170,8 @@ def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
     # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     KLD = -0.5 * torch.sum(1 + logvar_latent - mu_latent.pow(2) - logvar_latent.exp())
-    return loss_rec + 100 * KLD
+    #print(loss_rec.item(), KLD.item())
+    return loss_rec + 10 * KLD
 
 # KLD of D(P_1||P_2) where P_i are Gaussians, assuming diagonal
 def kld_joint_autoencoders(mu_1, mu_2, logvar_1, logvar_2):
@@ -212,7 +211,7 @@ def train(df, model, optimizer, epoch, batch_size):
         
         optimizer.zero_grad()
         mu_x, mu_latent, logvar_latent = model(batch_data)
-        loss = loss_function_per_autoencoder(batch_data, mu_x, mu_latent, logvar_latent)
+        loss = loss_function_per_autoencoder(batch_data, mu_x, mu_latent, logvar_latent) 
         loss.backward()
         train_loss += loss.item()
         optimizer.step()
@@ -270,7 +269,7 @@ def train_joint(df, model1, model2, optimizer, epoch, batch_size):
 
         
         loss_vae_1, loss_vae_2, joint_kld_loss = loss_function_joint(batch_data, model1, model2)
-        loss = (loss_vae_1 + loss_vae_2 + 1000 * joint_kld_loss)
+        loss = (loss_vae_1 + loss_vae_2 + 100 * joint_kld_loss)
         loss.backward()
         
         train_loss += loss.item()
@@ -363,9 +362,9 @@ def quick_model_summary(model, train_data, test_data, threshold, batch_size):
         test_pred[test_pred < threshold] = 0 
         
     print("Per Neuron Loss Train")
-    print(F.binary_cross_entropy(train_pred, train_data[0:batch_size, :], reduction='sum') / batch_size/ input_size)
+    print(F.binary_cross_entropy(train_pred, train_data[0:batch_size, :], reduction='mean'))
     print("Per Neuron Loss Test")
-    print(F.binary_cross_entropy(test_pred, test_data[0:batch_size, :], reduction='sum') / batch_size/ input_size)
+    print(F.binary_cross_entropy(test_pred, test_data[0:batch_size, :], reduction='mean'))
     
     print("# Non Sparse in Pred test")
     print(torch.sum(test_pred[0,:] != 0))
