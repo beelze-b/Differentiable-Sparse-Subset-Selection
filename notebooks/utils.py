@@ -12,7 +12,7 @@ import gc
 
 log_interval = 20
 
-EPSILON = 1e-10
+EPSILON = 1e-30
 
 def make_encoder(input_size, hidden_layer_size, z_size):
 
