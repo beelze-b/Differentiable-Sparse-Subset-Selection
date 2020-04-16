@@ -319,9 +319,9 @@ vae_gumbel_with_pre_optimizer = torch.optim.Adam(vae_gumbel_with_pre.parameters(
 
 
 for epoch in range(1, n_epochs + 1):
-        train_pre_trained(train_data, vae_gumbel_with_pre, vae_gumbel_with_pre_optimizer, 
-                          epoch, pretrain_vae, batch_size)
-        test(test_data, vae_gumbel_with_pre, epoch, batch_size)
+    train_pre_trained(train_data, vae_gumbel_with_pre, vae_gumbel_with_pre_optimizer,
+                      epoch, pretrain_vae, batch_size)
+    test(test_data, vae_gumbel_with_pre, epoch, batch_size)
 
 
 # In[ ]:
