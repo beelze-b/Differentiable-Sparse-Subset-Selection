@@ -12,7 +12,8 @@ import gc
 
 log_interval = 20
 
-EPSILON = 1e-30
+# rounding up lowest float32 on my system
+EPSILON = 1.2e-38
 
 def make_encoder(input_size, hidden_layer_size, z_size):
 
