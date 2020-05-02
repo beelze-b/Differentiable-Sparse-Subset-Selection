@@ -161,7 +161,7 @@ def continuous_topk(w, k, t, separate=False, EPSILON = EPSILON):
 
 
 # separate true is for debugging
-# good default value of t looks lke 0.001
+# good default value of t looks lke 0.0001
 # but let the constructor of the VAE gumbel decide that
 def sample_subset(w, k, t, separate = False, EPSILON = EPSILON):
     '''
@@ -181,7 +181,7 @@ def sample_subset(w, k, t, separate = False, EPSILON = EPSILON):
 
 # L1 VAE model we are loading
 class VAE_Gumbel(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.001):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.0001):
         super(VAE_Gumbel, self).__init__(input_size, hidden_layer_size, z_size)
         
         self.k = k
