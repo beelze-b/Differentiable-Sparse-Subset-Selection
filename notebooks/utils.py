@@ -13,7 +13,7 @@ import gc
 log_interval = 20
 
 # rounding up lowest float32 on my system
-EPSILON = 1.2e-38
+EPSILON = 1e-40
 
 def make_encoder(input_size, hidden_layer_size, z_size):
 
@@ -95,39 +95,75 @@ class VAE_l1_diag(VAE):
         return self.enc_mean(h), self.enc_logvar(h)
 
 
-def gumbel_keys(w):
+def gumbel_keys(w, EPSILON):
     # sample some gumbels
     uniform = (1.0 - EPSILON) * torch.rand_like(w) + EPSILON
     z = torch.log(-torch.log(uniform))
-    w = w + z
+    w += z
     return w
 
 
 #equations 3 and 4 and 5
-def continuous_topk(w, k, t, separate=False):
+# separate true is for debugging
+def continuous_topk(w, k, t, separate=False, EPSILON = EPSILON):
     softmax = nn.Softmax(dim = -1)
     khot_list = []
     onehot_approx = torch.zeros_like(w, dtype = torch.float32)
+    #print('w at start after adding gumbel noise')
+    #print(w)
     for i in range(k):
         ### conver the following into pytorch
-        #khot_mask = tf.maximum(1.0 - onehot_approx, EPSILON)
+        ## ORIGINAL: khot_mask = tf.maximum(1.0 - onehot_approx, EPSILON)
         max_mask = 1 - onehot_approx < EPSILON
         khot_mask = 1 - onehot_approx
         khot_mask[max_mask] = EPSILON
         
+        ### t has to be close enough to zero for this to lower the logit of the previously selected thing enough
+        ### otherwise it might select the same thing again
+        ### and the pattern repeats if the max w values were separate enough from all the others
+        
+        #If debugging, uncomment these print statements
+        #and return as separate to see how the logits are updated
+        
+        # to see if the update is big enough
+        #print('Log at max values / also delta w (ignore first print since nothing updating)')
+        #print(torch.log(khot_mask)[::, w.argsort(descending=True)])
+        
         w += torch.log(khot_mask)
-        #onehot_approx = tf.nn.softmax(w / t, axis=-1)
+        
+        #print('w')
+        #print(w)
+        # to track updates
+        #print("max w indices")
+        #print(w.argsort(descending=True))
+        # to see if the update is big enough
+        #print('max w values')
+        #print(w[::, w.argsort(descending=True)])
+        
+        
+        # as in the note above about t,
+        # if the differences here are not separate enough
+        # might get a sitaution where the same index is selected again
+        # because a flat distribution here will update all logits about the same
+        
+        # ORIGINAL: onehot_approx = tf.nn.softmax(w / t, axis=-1)
         onehot_approx = softmax(w/t)
+        
+        # to see if this is flat or not
+        #print("One hot approx")
+        #print(onehot_approx)
+        
         khot_list.append(onehot_approx)
-        gc.collect()
-        torch.cuda.empty_cache()
     if separate:
         return torch.stack(khot_list)
     else:
         return torch.sum(torch.stack(khot_list), dim = 0) 
 
 
-def sample_subset(w, k, t=0.1):
+# separate true is for debugging
+# good default value of t looks lke 0.001
+# but let the constructor of the VAE gumbel decide that
+def sample_subset(w, k, t, separate = False, EPSILON = EPSILON):
     '''
     Args:
         w (Tensor): Float Tensor of weights for each element. In gumbel mode
@@ -135,24 +171,33 @@ def sample_subset(w, k, t=0.1):
         k (int): number of elements in the subset sample
         t (float): temperature of the softmax
     '''
-    w = gumbel_keys(w)
-    return continuous_topk(w, k, t)
+    #print('w before gumbel noise')
+    #print(w)
+    assert EPSILON > 0
+    w = gumbel_keys(w, EPSILON)
+    return continuous_topk(w, k, t, separate = separate, EPSILON = EPSILON)
 
 
 
 # L1 VAE model we are loading
 class VAE_Gumbel(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.1):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.001):
         super(VAE_Gumbel, self).__init__(input_size, hidden_layer_size, z_size)
         
         self.k = k
         self.t = t
         
+        # end with more positive to make logit debugging easier
+        
+        # should probably add weight clipping to these gradients because you 
+        # do not want the final output (initial logits) of this to be too big or too small
+        # (values between -1 and 10 for first output seem fine)
         self.weight_creator = nn.Sequential(
             nn.Linear(input_size, hidden_layer_size),
             nn.BatchNorm1d(hidden_layer_size),
             nn.ReLU(),
-            nn.Linear(hidden_layer_size, input_size)
+            nn.Linear(hidden_layer_size, input_size),
+            nn.LeakyReLU()
         )
         
     def encode(self, x):
