@@ -106,7 +106,6 @@ def gumbel_keys(w, EPSILON):
 #equations 3 and 4 and 5
 # separate true is for debugging
 def continuous_topk(w, k, t, separate=False, EPSILON = EPSILON):
-    softmax = nn.Softmax(dim = -1)
     khot_list = []
     onehot_approx = torch.zeros_like(w, dtype = torch.float32)
     #print('w at start after adding gumbel noise')
@@ -147,7 +146,7 @@ def continuous_topk(w, k, t, separate=False, EPSILON = EPSILON):
         # because a flat distribution here will update all logits about the same
         
         # ORIGINAL: onehot_approx = tf.nn.softmax(w / t, axis=-1)
-        onehot_approx = softmax(w/t)
+        onehot_approx = F.softmax(w/t, dim = -1, dtype = torch.float32)
         
         # to see if this is flat or not
         #print("One hot approx")
@@ -181,7 +180,7 @@ def sample_subset(w, k, t, separate = False, EPSILON = EPSILON):
 
 # L1 VAE model we are loading
 class VAE_Gumbel(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.0001):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01):
         super(VAE_Gumbel, self).__init__(input_size, hidden_layer_size, z_size)
         
         self.k = k
