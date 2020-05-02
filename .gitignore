@@ -4,3 +4,4 @@ data/
 notebooks/.Rhistory
 notebooks/__pycache__/
 notebooks/.ipynb_checkpoints/
+nyu.yml
