@@ -206,6 +206,30 @@ class VAE_Gumbel(VAE):
         h1 = self.encoder(x)
         return self.enc_mean(h1), self.enc_logvar(h1)
 
+
+# Not Instance_Wise Gumbel
+class VAE_Gumbel_NInsta(VAE_Gumbel):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, method = 'mean'):
+        super(VAE_Gumbel_NInsta, self).__init__(input_size, hidden_layer_size, z_size, k, t)
+        self.method = method
+
+
+    def encode(self, x):
+        w = self.weight_creator(x)
+
+        if self.method == 'mean':
+            w = w.mean(dim = 0).view(1, -1)
+        elif self.method == 'median':
+            w = w.median(dim = 0)[0].view(1, -1)
+        else:
+            raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
+
+        subset_indices = sample_subset(w, self.k, self.t)
+        x = x * subset_indices
+        h1 = self.encoder(x)
+        return self.enc_mean(h1), self.enc_logvar(h1)
+
+
 def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
     loss_rec = F.binary_cross_entropy(recon_x, x, reduction='sum')
     
