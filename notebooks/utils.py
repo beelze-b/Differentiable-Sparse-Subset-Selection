@@ -229,6 +229,55 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
         h1 = self.encoder(x)
         return self.enc_mean(h1), self.enc_logvar(h1)
 
+# idea of having a Non Instance Wise Gumbel that also has a state to keep consistency across batches
+# probably some repetititon of code, but the issue is this class stuff, this is python 3 tho so it can be put into a good wrapper
+# that doesn't duplicate code
+class VAE_Gumbel_NInstaState(VAE_Gumbel):
+    # alpha is for  the exponential average
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, method = 'mean', alpha = 0.9):
+        super(VAE_Gumbel_NInstaState, self)
+        self.method = method
+
+        self.logit_enc = None
+        self.burned_in = False
+
+    def encode(self, x):
+        w = self.weight_creator(x)
+
+                
+
+        if not self.burned_in:
+            if self.method == 'mean':
+                pre_enc = w.mean(dim = 0).view(1, -1)
+            elif self.method == 'median':
+                pre_enc = w.median(dim = 0)[0].view(1, -1)
+            else:
+                raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
+
+
+            if self.logic_enc is not None:
+
+                state_changed_loss = F.mse_loss(pre_enc, self.logit_enc, reduction = 'sum')
+                self.logit_enc = (alpha) * self.logit_enc + (1-alpha) * pre_enc
+            else: 
+                state_changed_loss = 0
+                self.logit_enc = pre_enc
+        else:
+            state_changed_loss = 0
+
+        subset_indices = sample_subset(self.logit_enc, self.k, self.t)
+
+
+        x = x * subset_indices
+        h1 = self.encoder(x)
+        # en
+        return self.enc_mean(h1), self.enc_logvar(h1), state_changed_loss
+
+    def set_burned_in(self):
+        self.burned_in = True
+
+
+
 
 def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
     loss_rec = F.binary_cross_entropy(recon_x, x, reduction='sum')
@@ -383,7 +432,105 @@ def train_l1(df, model, optimizer, epoch, batch_size):
     print('====> Epoch: {} Average loss: {:.4f}'.format(
           epoch, train_loss / len(df)))
     
+def train_truncated_with_gradients(df, model, optimizer, epoch, batch_size, Dim):
+    model.train()
+    train_loss = 0
+    permutations = torch.randperm(df.shape[0])
+    gradients = torch.zeros(df.shape[1]).to(device)
+    for i in range(math.ceil(len(df)/batch_size)):
+        batch_ind = permutations[i * batch_size : (i+1) * batch_size]
+        batch_data = df[batch_ind, :].clone().to(device)
+        
+        
+        # need to do this twice because deriative with respect to input not implemented in BCE
+        # so need to switch them up
+        optimizer.zero_grad()
+        batch_data.requires_grad_(True)
+        mu_x, mu_latent, logvar_latent = model(batch_data)
+        # why clone detach here?
+        # still want gradient with respect to input, but BCE gradient with respect to target is not defined
+        # plus we only want to see how input affects mu_x, not the target
+        loss = loss_function_per_autoencoder(batch_data[:, :Dim].clone().detach(), mu_x[:, :Dim], 
+                                             mu_latent, logvar_latent) 
+        loss.backward(retain_graph=True)
+
+        with torch.no_grad():
+            gradients += torch.sqrt(batch_data.grad ** 2).sum(dim = 0)
+        # no step
+        
+        optimizer.zero_grad()
+        # do not calculate with respect to 
+        batch_data.requires_grad_(False)
+        mu_x.requires_grad_(True)
+        loss = loss_function_per_autoencoder(batch_data[:, :Dim], mu_x[:, :Dim], mu_latent, logvar_latent) 
+        loss.backward()
+        train_loss += loss.item()
+        optimizer.step()
+        
+        
+        
+        if i % log_interval == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                epoch, i * len(batch_data), len(df),
+                100. * i * len(batch_data)/ len(df),
+                loss.item() / len(batch_data)))
+
+    print('====> Epoch: {} Average loss: {:.4f}'.format(
+          epoch, train_loss / len(df)))
     
+    return gradients
+    
+def train_truncated_with_gradients_gumbel_state(df, model, optimizer, epoch, batch_size, Dim, state_changed_loss_lambda):
+    model.train()
+    train_loss = 0
+    permutations = torch.randperm(df.shape[0])
+    gradients = torch.zeros(df.shape[1]).to(device)
+    for i in range(math.ceil(len(df)/batch_size)):
+        batch_ind = permutations[i * batch_size : (i+1) * batch_size]
+        batch_data = df[batch_ind, :].clone().to(device)
+        
+        
+        # need to do this twice because deriative with respect to input not implemented in BCE
+        # so need to switch them up
+        optimizer.zero_grad()
+        batch_data.requires_grad_(True)
+        mu_x, mu_latent, logvar_latent, state_changed_loss = model(batch_data)
+        # why clone detach here?
+        # still want gradient with respect to input, but BCE gradient with respect to target is not defined
+        # plus we only want to see how input affects mu_x, not the target
+        loss = loss_function_per_autoencoder(batch_data[:, :Dim].clone().detach(), mu_x[:, :Dim], 
+                                             mu_latent, logvar_latent) 
+        loss += state_changed_loss_lambda * state_changed_loss
+
+        loss.backward(retain_graph=True)
+
+        with torch.no_grad():
+            gradients += torch.sqrt(batch_data.grad ** 2).sum(dim = 0)
+        # no step
+        
+        optimizer.zero_grad()
+        # do not calculate with respect to 
+        batch_data.requires_grad_(False)
+        mu_x.requires_grad_(True)
+        loss = loss_function_per_autoencoder(batch_data[:, :Dim], mu_x[:, :Dim], mu_latent, logvar_latent) 
+        loss += state_changed_loss_lambda * state_changed_loss
+        loss.backward()
+        train_loss += loss.item()
+        optimizer.step()
+        
+        
+        
+        if i % log_interval == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                epoch, i * len(batch_data), len(df),
+                100. * i * len(batch_data)/ len(df),
+                loss.item() / len(batch_data)))
+
+    print('====> Epoch: {} Average loss: {:.4f}'.format(
+          epoch, train_loss / len(df)))
+    
+    return gradients
+
 def test(df, model, epoch, batch_size):
     model.eval()
     test_loss = 0
