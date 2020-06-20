@@ -235,16 +235,16 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
 class VAE_Gumbel_NInstaState(VAE_Gumbel):
     # alpha is for  the exponential average
     def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, method = 'mean', alpha = 0.9):
-        super(VAE_Gumbel_NInstaState, self)
+        super(VAE_Gumbel_NInstaState, self).__init__(input_size, hidden_layer_size, z_size, k, t)
         self.method = method
 
         self.logit_enc = None
         self.burned_in = False
+        self.alpha = alpha
 
     def encode(self, x):
         w = self.weight_creator(x)
 
-                
 
         if not self.burned_in:
             if self.method == 'mean':
@@ -255,13 +255,17 @@ class VAE_Gumbel_NInstaState(VAE_Gumbel):
                 raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
 
 
-            if self.logic_enc is not None:
+            if self.logit_enc is not None:
 
-                state_changed_loss = F.mse_loss(pre_enc, self.logit_enc, reduction = 'sum')
-                self.logit_enc = (alpha) * self.logit_enc + (1-alpha) * pre_enc
+                # repeat used here to avoid annoying warning
+                # don't use pre_enc here, since loss is spread and averaged.
+                state_changed_loss = F.mse_loss(w, self.logit_enc.repeat_interleave(w.shape[0], 0), reduction = 'sum')
+                self.logit_enc = (self.alpha) * self.logit_enc + (1-self.alpha) * pre_enc
+                # otherwise have to keep track of a lot of gradients in the past
+                self.logit_enc = self.logit_enc.detach()
             else: 
                 state_changed_loss = 0
-                self.logit_enc = pre_enc
+                self.logit_enc = pre_enc.detach()
         else:
             state_changed_loss = 0
 
@@ -273,10 +277,16 @@ class VAE_Gumbel_NInstaState(VAE_Gumbel):
         # en
         return self.enc_mean(h1), self.enc_logvar(h1), state_changed_loss
 
+    def forward(self, x):
+        mu_latent, logvar_latent, state_changed_loss = self.encode(x)
+        z = self.reparameterize(mu_latent, logvar_latent)
+        mu_x = self.decode(z)
+        return mu_x, mu_latent, logvar_latent, state_changed_loss
+
+
     def set_burned_in(self):
         self.burned_in = True
-
-
+        self.t = self.t / 10
 
 
 def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
@@ -435,6 +445,9 @@ def train_l1(df, model, optimizer, epoch, batch_size):
 def train_truncated_with_gradients(df, model, optimizer, epoch, batch_size, Dim):
     model.train()
     train_loss = 0
+    cuda = True if torch.cuda.is_available() else False
+    device = torch.device("cuda:0" if cuda else "cpu")
+
     permutations = torch.randperm(df.shape[0])
     gradients = torch.zeros(df.shape[1]).to(device)
     for i in range(math.ceil(len(df)/batch_size)):
@@ -483,6 +496,9 @@ def train_truncated_with_gradients(df, model, optimizer, epoch, batch_size, Dim)
 def train_truncated_with_gradients_gumbel_state(df, model, optimizer, epoch, batch_size, Dim, state_changed_loss_lambda):
     model.train()
     train_loss = 0
+    cuda = True if torch.cuda.is_available() else False
+    device = torch.device("cuda:0" if cuda else "cpu")
+
     permutations = torch.randperm(df.shape[0])
     gradients = torch.zeros(df.shape[1]).to(device)
     for i in range(math.ceil(len(df)/batch_size)):
@@ -500,6 +516,7 @@ def train_truncated_with_gradients_gumbel_state(df, model, optimizer, epoch, bat
         # plus we only want to see how input affects mu_x, not the target
         loss = loss_function_per_autoencoder(batch_data[:, :Dim].clone().detach(), mu_x[:, :Dim], 
                                              mu_latent, logvar_latent) 
+        print("Loss " + str(loss) + " State Changed Loss " + str(state_changed_loss))
         loss += state_changed_loss_lambda * state_changed_loss
 
         loss.backward(retain_graph=True)
