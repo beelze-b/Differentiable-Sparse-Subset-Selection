@@ -11,6 +11,9 @@ import math
 import gc
 import random
 
+
+from sklearn.preprocessing import MinMaxScaler
+
 log_interval = 20
 
 # rounding up lowest float32 on my system
@@ -632,3 +635,52 @@ def quick_model_summary(model, train_data, test_data, threshold, batch_size):
     print(torch.sum(test_pred[0,:] != 0))
     print("# Non Sparse in Orig test")
     print(torch.sum(test_data[0,:] != 0))
+
+
+def generate_synthetic_data_with_noise(N, z_size, D, D_noise = None):
+    if not D_noise:
+        D_noise = D
+
+    cuda = True if torch.cuda.is_available() else False
+    
+    Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
+    
+    device = torch.device("cuda:0" if cuda else "cpu")
+
+
+    latent_data = np.random.normal(loc=0.0, scale=1.0, size=N*z_size).reshape(N, z_size)
+
+    data_mapper = nn.Sequential(
+        nn.Linear(z_size, 2 * z_size, bias=False),
+        nn.Tanh(),
+        nn.Linear(2 * z_size, D, bias = True),
+        nn.ReLU()
+        ).to(device)
+
+    data_mapper.requires_grad_(False)
+
+    latent_data = Tensor(latent_data)
+    latent_data.requires_grad_(False)
+
+    actual_data = data_mapper(latent_data)
+    noise_features = torch.empty(N * D_noise).normal_(mean=0,std=0.01).reshape(N, D_noise).to(device)
+    noise_features.requires_grad_(False)
+
+
+    actual_data = torch.cat([actual_data, noise_features], dim = 1)
+
+
+    actual_data = actual_data.cpu().numpy()
+    scaler = MinMaxScaler()
+    actual_data = scaler.fit_transform(actual_data)
+
+    actual_data = Tensor(actual_data)
+
+    slices = np.random.permutation(np.arange(actual_data.shape[0]))
+    upto = int(.8 * len(actual_data))
+    
+    train_data = actual_data[slices[:upto]]
+    test_data = actual_data[slices[upto:]]
+
+    return train_data, test_data
+
