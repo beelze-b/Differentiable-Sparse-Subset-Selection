@@ -252,11 +252,11 @@ class VAE_Gumbel_NInstaState(VAE_Gumbel):
             )
 
     def encode(self, x):
-        w = self.weight_creator(x)
 
 
 
         if not self.burned_in:
+            w = self.weight_creator(x)
             w_recon = self.logits_ae(w)
 
             if self.method == 'mean':
@@ -278,7 +278,7 @@ class VAE_Gumbel_NInstaState(VAE_Gumbel):
                 # repeat used here to avoid annoying warning
                 # don't use pre_enc here, since loss is spread and averaged.
                 # F.mse_loss(w, self.logit_enc.repeat_interleave(w.shape[0], 0), reduction = 'sum')
-                state_changed_loss = F.mse_loss(w_recon_enc, self.logit_enc)
+                state_changed_loss = F.mse_loss(w_recon_enc, self.logit_enc, reduction = 'sum')
                 self.logit_enc = (self.alpha) * self.logit_enc + (1-self.alpha) * pre_enc
                 # otherwise have to keep track of a lot of gradients in the past # NOTE this applies for post burn in but detatch at every encoding because we don't now
                 # self.logit_enc = self.logit_enc.detach()
@@ -308,7 +308,7 @@ class VAE_Gumbel_NInstaState(VAE_Gumbel):
 
     def set_burned_in(self):
         self.burned_in = True
-        self.t = self.t / 10
+        # self.t = self.t / 10
         if self.logit_enc is not None:
             self.logit_enc = self.logit_enc.detach()
 
