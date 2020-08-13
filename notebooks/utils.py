@@ -22,14 +22,7 @@ EPSILON = 1e-40
 def make_encoder(input_size, hidden_layer_size, z_size):
 
     main_enc = nn.Sequential(
-            nn.Linear(input_size, 2*hidden_layer_size),
-            nn.LeakyReLU(),
-            #nn.BatchNorm1d(2*hidden_layer_size),
-            nn.Linear(2*hidden_layer_size, 1*hidden_layer_size),
-            nn.LeakyReLU(),
-            nn.Linear(1*hidden_layer_size, 1*hidden_layer_size),
-            nn.LeakyReLU(),
-            nn.Linear(1*hidden_layer_size, 1*hidden_layer_size),
+            nn.Linear(input_size, hidden_layer_size),
             nn.LeakyReLU()
             #nn.BatchNorm1d(1*hidden_layer_size),
         )
@@ -43,13 +36,13 @@ def make_encoder(input_size, hidden_layer_size, z_size):
 def make_bernoulli_decoder(input_size, hidden_size, z_size):
 
     main_dec = nn.Sequential(
-            nn.Linear(z_size, 2*hidden_size),
+            nn.Linear(z_size, 1*hidden_size),
             #nn.BatchNorm1d(hidden_size),
             #nn.LeakyReLU(),
             #nn.Linear(hidden_size, 2* hidden_size),
             nn.LeakyReLU(),
             #nn.BatchNorm1d(1* hidden_size),
-            nn.Linear(2*hidden_size, input_size),
+            nn.Linear(1*hidden_size, input_size),
             #nn.BatchNorm1d(input_size),
             nn.Sigmoid()
         )
