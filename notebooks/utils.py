@@ -96,7 +96,8 @@ def gumbel_keys(w, EPSILON):
     # sample some gumbels
     uniform = (1.0 - EPSILON) * torch.rand_like(w) + EPSILON
     z = torch.log(-torch.log(uniform))
-    w += z
+    # can't do inplace if you want gradients on w
+    w = w + z
     return w
 
 
@@ -238,8 +239,7 @@ class VAE_Gumbel_NInstaState(VAE):
         self.t = t
 
 
-        self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size), 
-            torch.ones(input_size)).requires_grad_(True)).view(1, -1)
+        self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size), torch.ones(input_size)).view(1, -1).requires_grad_(True))
 
         self.burned_in = False
 
@@ -253,17 +253,17 @@ class VAE_Gumbel_NInstaState(VAE):
         return self.enc_mean(h1), self.enc_logvar(h1)
 
     def forward(self, x):
-        mu_latent, logvar_latent, logits_loss = self.encode(x)
+        mu_latent, logvar_latent = self.encode(x)
         z = self.reparameterize(mu_latent, logvar_latent)
         mu_x = self.decode(z)
-        return mu_x, mu_latent, logvar_latent, logits_loss
+        return mu_x, mu_latent, logvar_latent 
 
 
     def set_burned_in(self):
         self.burned_in = True
         # self.t = self.t / 10
         if self.logit_enc is not None:
-            self.logit_enc = self.logit_enc.requires_grad(False)
+            self.logit_enc = self.logit_enc.requires_grad_(False)
 
 
 def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
