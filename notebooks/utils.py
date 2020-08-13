@@ -222,8 +222,8 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
         else:
             raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
 
-        subset_indices = sample_subset(w, self.k, self.t)
-        x = x * subset_indices
+        self.subset_indices = sample_subset(w, self.k, self.t)
+        x = x * self.subset_indices
         h1 = self.encoder(x)
         return self.enc_mean(h1), self.enc_logvar(h1)
 
