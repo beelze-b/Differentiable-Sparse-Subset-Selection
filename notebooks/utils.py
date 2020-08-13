@@ -198,8 +198,8 @@ class VAE_Gumbel(VAE):
         
     def encode(self, x):
         w = self.weight_creator(x)
-        subset_indices = sample_subset(w, self.k, self.t)
-        x = x * subset_indices
+        self.subset_indices = sample_subset(w, self.k, self.t)
+        x = x * self.subset_indices
         h1 = self.encoder(x)
         return self.enc_mean(h1), self.enc_logvar(h1)
 
@@ -229,13 +229,18 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
 # idea of having a Non Instance Wise Gumbel that also has a state to keep consistency across batches
 # probably some repetititon of code, but the issue is this class stuff, this is python 3 tho so it can be put into a good wrapper
 # that doesn't duplicate code
-class VAE_Gumbel_NInstaState(VAE_Gumbel):
+class VAE_Gumbel_NInstaState(VAE):
     # alpha is for  the exponential average
     def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01):
-        super(VAE_Gumbel_NInstaState, self).__init__(input_size, hidden_layer_size, z_size, k, t)
+        super(VAE_Gumbel_NInstaState, self).__init__(input_size, hidden_layer_size, z_size)
+        
+        self.k = k
+        self.t = t
+
 
         self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size), 
-                                 torch.ones(input_size)).requires_grad_(True)).view(1, -1)
+            torch.ones(input_size)).requires_grad_(True)).view(1, -1)
+
         self.burned_in = False
 
     def encode(self, x):
@@ -258,7 +263,7 @@ class VAE_Gumbel_NInstaState(VAE_Gumbel):
         self.burned_in = True
         # self.t = self.t / 10
         if self.logit_enc is not None:
-            self.logit_enc = self.logit_enc.requires_grad(False).detach()
+            self.logit_enc = self.logit_enc.requires_grad(False)
 
 
 def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
