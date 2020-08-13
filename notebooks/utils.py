@@ -235,7 +235,7 @@ class VAE_Gumbel_NInstaState(VAE_Gumbel):
         super(VAE_Gumbel_NInstaState, self).__init__(input_size, hidden_layer_size, z_size, k, t)
 
         self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size), 
-                                 torch.ones(input_size)).requires_grad_(True))
+                                 torch.ones(input_size)).requires_grad_(True)).view(1, -1)
         self.burned_in = False
 
     def encode(self, x):
