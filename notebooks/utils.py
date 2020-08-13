@@ -19,17 +19,11 @@ log_interval = 20
 # rounding up lowest float32 on my system
 EPSILON = 1e-40
 
+
 def make_encoder(input_size, hidden_layer_size, z_size):
 
     main_enc = nn.Sequential(
-            nn.Linear(input_size, 2*hidden_layer_size),
-            nn.LeakyReLU(),
-            #nn.BatchNorm1d(2*hidden_layer_size),
-            nn.Linear(2*hidden_layer_size, 1*hidden_layer_size),
-            nn.LeakyReLU(),
-            nn.Linear(1*hidden_layer_size, 1*hidden_layer_size),
-            nn.LeakyReLU(),
-            nn.Linear(1*hidden_layer_size, 1*hidden_layer_size),
+            nn.Linear(input_size, hidden_layer_size),
             nn.LeakyReLU()
             #nn.BatchNorm1d(1*hidden_layer_size),
         )
@@ -43,13 +37,13 @@ def make_encoder(input_size, hidden_layer_size, z_size):
 def make_bernoulli_decoder(input_size, hidden_size, z_size):
 
     main_dec = nn.Sequential(
-            nn.Linear(z_size, 2*hidden_size),
+            nn.Linear(z_size, 1*hidden_size),
             #nn.BatchNorm1d(hidden_size),
             #nn.LeakyReLU(),
             #nn.Linear(hidden_size, 2* hidden_size),
             nn.LeakyReLU(),
             #nn.BatchNorm1d(1* hidden_size),
-            nn.Linear(2*hidden_size, input_size),
+            nn.Linear(1*hidden_size, input_size),
             #nn.BatchNorm1d(input_size),
             nn.Sigmoid()
         )
@@ -205,8 +199,8 @@ class VAE_Gumbel(VAE):
         
     def encode(self, x):
         w = self.weight_creator(x)
-        subset_indices = sample_subset(w, self.k, self.t)
-        x = x * subset_indices
+        self.subset_indices = sample_subset(w, self.k, self.t)
+        x = x * self.subset_indices
         h1 = self.encoder(x)
         return self.enc_mean(h1), self.enc_logvar(h1)
 
@@ -228,8 +222,8 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
         else:
             raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
 
-        subset_indices = sample_subset(w, self.k, self.t)
-        x = x * subset_indices
+        self.subset_indices = sample_subset(w, self.k, self.t)
+        x = x * self.subset_indices
         h1 = self.encoder(x)
         return self.enc_mean(h1), self.enc_logvar(h1)
 
@@ -313,7 +307,7 @@ class VAE_Gumbel_NInstaState(VAE_Gumbel):
         self.burned_in = True
         # self.t = self.t / 10
         if self.logit_enc is not None:
-            self.logit_enc = self.logit_enc.detach()
+            self.logit_enc = self.logit_enc.requires_grad_(False)
 
 
 def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
