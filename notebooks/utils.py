@@ -266,6 +266,30 @@ class VAE_Gumbel_NInstaState(VAE):
             self.logit_enc = self.logit_enc.requires_grad_(False)
 
 
+# NMSL is Not My Selection Layer
+# Implementing reference paper
+class ConcreteVAE_NMSL(VAE):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01):
+        super(VAE_Gumbel_NInstaState, self).__init__(input_size, hidden_layer_size, z_size)
+        
+        self.k = k
+        self.t = t
+
+
+        self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size*k), torch.ones(input_size*k)).view(k, -1).requires_grad_(True))
+
+    def encode(self, x):
+        w = gumbel_keys(w, EPSILON = torch.finfo(torch.float32).eps)
+        w = torch.softmax(w/t, dim = -1)
+        subset_indices = w.sum(dim = 0)
+
+        x = x * subset_indices
+        h1 = self.encoder(x)
+        # en
+        return self.enc_mean(h1), self.enc_logvar(h1)
+
+
+
 def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
     loss_rec = F.binary_cross_entropy(recon_x, x, reduction='sum')
     
