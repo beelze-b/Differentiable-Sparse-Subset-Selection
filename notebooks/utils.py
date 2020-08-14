@@ -270,7 +270,7 @@ class VAE_Gumbel_NInstaState(VAE):
 # Implementing reference paper
 class ConcreteVAE_NMSL(VAE):
     def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01):
-        super(VAE_Gumbel_NInstaState, self).__init__(input_size, hidden_layer_size, z_size)
+        super(ConcreteVAE_NMSL, self).__init__(input_size, hidden_layer_size, z_size)
         
         self.k = k
         self.t = t
@@ -279,11 +279,11 @@ class ConcreteVAE_NMSL(VAE):
         self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size*k), torch.ones(input_size*k)).view(k, -1).requires_grad_(True))
 
     def encode(self, x):
-        w = gumbel_keys(w, EPSILON = torch.finfo(torch.float32).eps)
-        w = torch.softmax(w/t, dim = -1)
-        subset_indices = w.sum(dim = 0)
+        w = gumbel_keys(self.logit_enc, EPSILON = torch.finfo(torch.float32).eps)
+        w = torch.softmax(w/self.t, dim = -1)
+        self.subset_indices = w.sum(dim = 0)
 
-        x = x * subset_indices
+        x = x * self.subset_indices
         h1 = self.encoder(x)
         # en
         return self.enc_mean(h1), self.enc_logvar(h1)
