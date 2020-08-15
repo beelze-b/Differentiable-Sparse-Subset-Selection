@@ -34,7 +34,7 @@ def make_encoder(input_size, hidden_layer_size, z_size):
     return main_enc, enc_mean, enc_logvar
 
 
-def make_bernoulli_decoder(input_size, hidden_size, z_size):
+def make_bernoulli_decoder(output_size, hidden_size, z_size):
 
     main_dec = nn.Sequential(
             nn.Linear(z_size, 1*hidden_size),
@@ -43,7 +43,7 @@ def make_bernoulli_decoder(input_size, hidden_size, z_size):
             #nn.Linear(hidden_size, 2* hidden_size),
             nn.LeakyReLU(),
             #nn.BatchNorm1d(1* hidden_size),
-            nn.Linear(1*hidden_size, input_size),
+            nn.Linear(1*hidden_size, output_size),
             #nn.BatchNorm1d(input_size),
             nn.Sigmoid()
         )
@@ -52,13 +52,16 @@ def make_bernoulli_decoder(input_size, hidden_size, z_size):
 
 
 class VAE(nn.Module):
-    def __init__(self, input_size, hidden_layer_size, z_size):
+    def __init__(self, input_size, hidden_layer_size, z_size, output_size = None):
         super(VAE, self).__init__()
+
+        if output_size is None:
+            output_size = input_size
 
         self.encoder, self.enc_mean, self.enc_logvar = make_encoder(input_size,
                 hidden_layer_size, z_size)
 
-        self.decoder = make_bernoulli_decoder(input_size, hidden_layer_size, z_size)
+        self.decoder = make_bernoulli_decoder(output_size, hidden_layer_size, z_size)
 
 
     def encode(self, x):
@@ -339,7 +342,8 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
 # Implementing reference paper
 class ConcreteVAE_NMSL(VAE):
     def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01):
-        super(ConcreteVAE_NMSL, self).__init__(input_size, hidden_layer_size, z_size)
+        # k because encoder actually uses k features as its input because of how concrete VAE picks it out
+        super(ConcreteVAE_NMSL, self).__init__(k, hidden_layer_size, z_size, output_size = input_size)
         
         self.k = k
         self.t = t
@@ -349,9 +353,11 @@ class ConcreteVAE_NMSL(VAE):
     def encode(self, x):
         w = gumbel_keys(self.logit_enc, EPSILON = torch.finfo(torch.float32).eps)
         w = torch.softmax(w/self.t, dim = -1)
-        self.subset_indices = w.sum(dim = 0)
 
-        x = x * self.subset_indices
+        # safe here because we do not use it in computation, only reference
+        self.subset_indices = w.clone().detach()
+
+        x = x.mm(w.transpose(0, 1))
         h1 = self.encoder(x)
         # en
         return self.enc_mean(h1), self.enc_logvar(h1)
