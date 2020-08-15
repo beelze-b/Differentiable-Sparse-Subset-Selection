@@ -97,7 +97,7 @@ def gumbel_keys(w, EPSILON):
     # sample some gumbels
     uniform = (1.0 - EPSILON) * torch.rand_like(w) + EPSILON
     z = torch.log(-torch.log(uniform))
-    w += z
+    w = w + z
     return w
 
 
@@ -265,23 +265,19 @@ class VAE_Gumbel_NInstaState(VAE_Gumbel):
             else:
                 raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
 
-
-
             #subset_indices = sample_subset(pre_enc, self.k, self.t)
             # state_changed_loss = F.mse_loss(w, w_recon, reduction = 'sum')
-
 
             if self.logit_enc is not None:
                 # repeat used here to avoid annoying warning
                 # don't use pre_enc here, since loss is spread and averaged.
                 # F.mse_loss(w, self.logit_enc.repeat_interleave(w.shape[0], 0), reduction = 'sum')
-                state_changed_loss = F.mse_loss(w_recon_enc, self.logit_enc, reduction = 'sum')
-                self.logit_enc = (self.alpha) * self.logit_enc + (1-self.alpha) * pre_enc
+                state_changed_loss = F.mse_loss(w_recon_enc, self.logit_enc.detach(), reduction = 'sum')
+                self.logit_enc = (self.alpha) * self.logit_enc.detach() + (1-self.alpha) * pre_enc
                 # otherwise have to keep track of a lot of gradients in the past # NOTE this applies for post burn in but detatch at every encoding because we don't now
                 # self.logit_enc = self.logit_enc.detach()
-                self.logit_enc = self.logit_enc.detach()
             else: 
-                self.logit_enc = (1-self.alpha)*pre_enc.detach()
+                self.logit_enc = (1-self.alpha)*pre_enc
                 #self.logit_enc = pre_enc.detach()
 
                 state_changed_loss = 0
@@ -305,10 +301,8 @@ class VAE_Gumbel_NInstaState(VAE_Gumbel):
 
     def set_burned_in(self):
         self.burned_in = True
+        self.logit_enc = self.logit_enc.detach()
         # self.t = self.t / 10
-        if self.logit_enc is not None:
-            self.logit_enc = self.logit_enc.requires_grad_(False)
-
 
 def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
     loss_rec = F.binary_cross_entropy(recon_x, x, reduction='sum')
