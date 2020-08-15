@@ -290,14 +290,11 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
     def encode(self, x):
         if self.training:
             w = self.weight_creator(x)
-            w_recon = self.logits_ae(w)
 
             if self.method == 'mean':
                 pre_enc = w.mean(dim = 0).view(1, -1)
-                w_recon_enc = w_recon.mean(dim = 0).view(1, -1)
             elif self.method == 'median':
                 pre_enc = w.median(dim = 0)[0].view(1, -1)
-                w_recon_enc = w_recon.median(dim = 0)[0].view(1, -1)
             else:
                 raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
 
@@ -307,30 +304,25 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
             if self.logit_enc is not None:
                 # repeat used here to avoid annoying warning
                 # don't use pre_enc here, since loss is spread and averaged.
-                # F.mse_loss(w, self.logit_enc.repeat_interleave(w.shape[0], 0), reduction = 'sum')
-                state_changed_loss = F.mse_loss(w_recon_enc, self.logit_enc.detach(), reduction = 'sum')
                 self.logit_enc = (self.alpha) * self.logit_enc.detach() + (1-self.alpha) * pre_enc
                 # otherwise have to keep track of a lot of gradients in the past # NOTE this applies for post burn in but detatch at every encoding because we don't now
                 # self.logit_enc = self.logit_enc.detach()
             else: 
                 self.logit_enc = (1-self.alpha)*pre_enc
                 #self.logit_enc = pre_enc.detach()
-                state_changed_loss = 0
-        else:
-            state_changed_loss = 0
 
         subset_indices = sample_subset(self.logit_enc, self.k, self.t)
 
         x = x * subset_indices
         h1 = self.encoder(x)
         # en
-        return self.enc_mean(h1), self.enc_logvar(h1), state_changed_loss
+        return self.enc_mean(h1), self.enc_logvar(h1) 
 
     def forward(self, x):
-        mu_latent, logvar_latent, logits_loss = self.encode(x)
+        mu_latent, logvar_latent = self.encode(x)
         z = self.reparameterize(mu_latent, logvar_latent)
         mu_x = self.decode(z)
-        return mu_x, mu_latent, logvar_latent, logits_loss
+        return mu_x, mu_latent, logvar_latent 
 
 
     def set_burned_in(self):
@@ -566,65 +558,6 @@ def train_truncated_with_gradients(df, model, optimizer, epoch, batch_size, Dim)
     
     return gradients
     
-def train_truncated_with_gradients_gumbel_state(df, model, optimizer, epoch, batch_size, Dim, logits_changed_loss_lambda, DEBUG = False):
-    model.train()
-    train_loss = 0
-    cuda = True if torch.cuda.is_available() else False
-    device = torch.device("cuda:0" if cuda else "cpu")
-
-    permutations = torch.randperm(df.shape[0])
-    gradients = torch.zeros(df.shape[1]).to(device)
-    for i in range(math.ceil(len(df)/batch_size)):
-        batch_ind = permutations[i * batch_size : (i+1) * batch_size]
-        batch_data = df[batch_ind, :].clone().to(device)
-        
-        
-        # need to do this twice because deriative with respect to input not implemented in BCE
-        # so need to switch them up
-        optimizer.zero_grad()
-        batch_data.requires_grad_(True)
-        mu_x, mu_latent, logvar_latent, logits_loss = model(batch_data)
-        # why clone detach here?
-        # still want gradient with respect to input, but BCE gradient with respect to target is not defined
-        # plus we only want to see how input affects mu_x, not the target
-        loss = loss_function_per_autoencoder(batch_data[:, :Dim].clone().detach(), mu_x[:, :Dim], 
-                                             mu_latent, logvar_latent) 
-        
-        if DEBUG:
-            innn = random.randint(1, 100)
-            if innn == 10:
-                print("Loss " + str(loss) + "Logits Loss " + str(logits_loss))
-
-        loss += logits_changed_loss_lambda * logits_loss
-
-        loss.backward(retain_graph=True)
-
-        with torch.no_grad():
-            gradients += torch.sqrt(batch_data.grad ** 2).sum(dim = 0)
-        # no step
-        
-        optimizer.zero_grad()
-        # do not calculate with respect to 
-        batch_data.requires_grad_(False)
-        mu_x.requires_grad_(True)
-        loss = loss_function_per_autoencoder(batch_data[:, :Dim], mu_x[:, :Dim], mu_latent, logvar_latent) 
-        loss += logits_changed_loss_lambda * logits_loss
-        loss.backward()
-        train_loss += loss.item()
-        optimizer.step()
-        
-        
-        
-        if i % log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, i * len(batch_data), len(df),
-                100. * i * len(batch_data)/ len(df),
-                loss.item() / len(batch_data)))
-
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
-          epoch, train_loss / len(df)))
-    
-    return gradients
 
 def test(df, model, epoch, batch_size):
     model.eval()
