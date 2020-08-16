@@ -253,3 +253,9 @@ model.encoder[0].weight
 model.load_state_dict(torch.load(BASE_PATH+"concrete_vae_nmsl/k_15/model_trial_1.pt"))
 model.eval()
 
+
+# In[ ]:
+
+
+print("Ran successfully")
+
