@@ -59,7 +59,7 @@ z_size = 8
 
 # really good results for vanilla VAE on synthetic data with EPOCHS set to 50, 
 # but when running locally set to 10 for reasonable run times
-n_epochs = 10
+n_epochs = 600
 batch_size = 64
 lr = 0.0001
 b1 = 0.9
