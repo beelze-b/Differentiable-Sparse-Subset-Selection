@@ -124,7 +124,7 @@ BASE_PATH = '/scratch/ns3429/sparse-subset/data/models/final_run/'
 
 
 def run_vanilla_vae_gumbel():
-    for trial in range(trial_num):
+    for trial in range(1, trial_num+1):
         for k in k_lab:
             print("VANILLA VAE GUMBEL, TRIAL={}, K={}".format(trial, k))
             additional_path = "vanilla_vae_gumbel/k_{}/model_trial_{}.pt".format(k, trial)
