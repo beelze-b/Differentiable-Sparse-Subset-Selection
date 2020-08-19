@@ -537,7 +537,6 @@ def train_truncated_with_gradients(df, model, optimizer, epoch, batch_size, Dim)
         optimizer.zero_grad()
         # do not calculate with respect to 
         batch_data.requires_grad_(False)
-        mu_x.requires_grad_(True)
         loss = loss_function_per_autoencoder(batch_data[:, :Dim], mu_x[:, :Dim], mu_latent, logvar_latent) 
         loss.backward()
         train_loss += loss.item()
