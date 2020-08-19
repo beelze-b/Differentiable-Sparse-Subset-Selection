@@ -272,21 +272,17 @@ class VAE_Gumbel_GlobalGate(VAE):
 class VAE_Gumbel_RunningState(VAE_Gumbel):
     # alpha is for  the exponential average
     def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, method = 'mean', alpha = 0.9):
-        super(VAE_Gumbel_RunningState, self).__init__(input_size, hidden_layer_size, z_size, k, t)
+        super(VAE_Gumbel_RunningState, self).__init__(input_size, hidden_layer_size, z_size, k = k, t = t)
         self.method = method
 
         assert alpha < 1
         assert alpha > 0
 
         self.logit_enc = None
+
         self.burned_in = False
         self.alpha = alpha
-        self.logits_ae = nn.Sequential(
-                nn.Linear(input_size, input_size // 4),
-                nn.ReLU(),
-                nn.Linear(input_size // 4, input_size)
-            )
-
+        
     def encode(self, x):
         if self.training:
             w = self.weight_creator(x)
@@ -300,7 +296,6 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
 
             #subset_indices = sample_subset(pre_enc, self.k, self.t)
             # state_changed_loss = F.mse_loss(w, w_recon, reduction = 'sum')
-
             if self.logit_enc is not None:
                 # repeat used here to avoid annoying warning
                 # don't use pre_enc here, since loss is spread and averaged.
@@ -310,6 +305,7 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
             else: 
                 self.logit_enc = (1-self.alpha)*pre_enc
                 #self.logit_enc = pre_enc.detach()
+
 
         subset_indices = sample_subset(self.logit_enc, self.k, self.t)
 
@@ -327,6 +323,8 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
 
     def set_burned_in(self):
         self.burned_in = True
+        # to make sure it saves
+        self.logit_enc = nn.Parameter(self.logit_enc, requires_grad = False)
         # self.logit_enc = self.logit_enc.detach()
         # self.t = self.t / 10
 
