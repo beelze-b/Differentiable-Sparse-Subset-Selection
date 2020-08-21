@@ -129,7 +129,10 @@ def continuous_topk(w, k, t, separate=False, EPSILON = EPSILON):
         #print('Log at max values / also delta w (ignore first print since nothing updating)')
         #print(torch.log(khot_mask)[::, w.argsort(descending=True)])
         
-        w += torch.log(khot_mask)
+        # does not matter if this is in-place or not because gumbel_keys happens before this
+        # and creates a temporary buffer so that the model weights are not edited in place
+        # make not in place just to be safe for a run
+        w = w + torch.log(khot_mask)
         
         #print('w')
         #print(w)
