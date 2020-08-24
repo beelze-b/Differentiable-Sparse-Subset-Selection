@@ -19,17 +19,11 @@ log_interval = 20
 # rounding up lowest float32 on my system
 EPSILON = 1e-40
 
+
 def make_encoder(input_size, hidden_layer_size, z_size):
 
     main_enc = nn.Sequential(
-            nn.Linear(input_size, 2*hidden_layer_size),
-            nn.LeakyReLU(),
-            #nn.BatchNorm1d(2*hidden_layer_size),
-            nn.Linear(2*hidden_layer_size, 1*hidden_layer_size),
-            nn.LeakyReLU(),
-            nn.Linear(1*hidden_layer_size, 1*hidden_layer_size),
-            nn.LeakyReLU(),
-            nn.Linear(1*hidden_layer_size, 1*hidden_layer_size),
+            nn.Linear(input_size, hidden_layer_size),
             nn.LeakyReLU()
             #nn.BatchNorm1d(1*hidden_layer_size),
         )
@@ -40,16 +34,16 @@ def make_encoder(input_size, hidden_layer_size, z_size):
     return main_enc, enc_mean, enc_logvar
 
 
-def make_bernoulli_decoder(input_size, hidden_size, z_size):
+def make_bernoulli_decoder(output_size, hidden_size, z_size):
 
     main_dec = nn.Sequential(
-            nn.Linear(z_size, 2*hidden_size),
+            nn.Linear(z_size, 1*hidden_size),
             #nn.BatchNorm1d(hidden_size),
             #nn.LeakyReLU(),
             #nn.Linear(hidden_size, 2* hidden_size),
             nn.LeakyReLU(),
             #nn.BatchNorm1d(1* hidden_size),
-            nn.Linear(2*hidden_size, input_size),
+            nn.Linear(1*hidden_size, output_size),
             #nn.BatchNorm1d(input_size),
             nn.Sigmoid()
         )
@@ -58,13 +52,16 @@ def make_bernoulli_decoder(input_size, hidden_size, z_size):
 
 
 class VAE(nn.Module):
-    def __init__(self, input_size, hidden_layer_size, z_size):
+    def __init__(self, input_size, hidden_layer_size, z_size, output_size = None):
         super(VAE, self).__init__()
+
+        if output_size is None:
+            output_size = input_size
 
         self.encoder, self.enc_mean, self.enc_logvar = make_encoder(input_size,
                 hidden_layer_size, z_size)
 
-        self.decoder = make_bernoulli_decoder(input_size, hidden_layer_size, z_size)
+        self.decoder = make_bernoulli_decoder(output_size, hidden_layer_size, z_size)
 
 
     def encode(self, x):
@@ -103,7 +100,7 @@ def gumbel_keys(w, EPSILON):
     # sample some gumbels
     uniform = (1.0 - EPSILON) * torch.rand_like(w) + EPSILON
     z = torch.log(-torch.log(uniform))
-    w += z
+    w = w + z
     return w
 
 
@@ -132,7 +129,10 @@ def continuous_topk(w, k, t, separate=False, EPSILON = EPSILON):
         #print('Log at max values / also delta w (ignore first print since nothing updating)')
         #print(torch.log(khot_mask)[::, w.argsort(descending=True)])
         
-        w += torch.log(khot_mask)
+        # does not matter if this is in-place or not because gumbel_keys happens before this
+        # and creates a temporary buffer so that the model weights are not edited in place
+        # make not in place just to be safe for a run
+        w = w + torch.log(khot_mask)
         
         #print('w')
         #print(w)
@@ -205,8 +205,8 @@ class VAE_Gumbel(VAE):
         
     def encode(self, x):
         w = self.weight_creator(x)
-        subset_indices = sample_subset(w, self.k, self.t)
-        x = x * subset_indices
+        self.subset_indices = sample_subset(w, self.k, self.t)
+        x = x * self.subset_indices
         h1 = self.encoder(x)
         return self.enc_mean(h1), self.enc_logvar(h1)
 
@@ -228,93 +228,132 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
         else:
             raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
 
-        subset_indices = sample_subset(w, self.k, self.t)
-        x = x * subset_indices
+        self.subset_indices = sample_subset(w, self.k, self.t)
+        x = x * self.subset_indices
         h1 = self.encoder(x)
         return self.enc_mean(h1), self.enc_logvar(h1)
+
 
 # idea of having a Non Instance Wise Gumbel that also has a state to keep consistency across batches
 # probably some repetititon of code, but the issue is this class stuff, this is python 3 tho so it can be put into a good wrapper
 # that doesn't duplicate code
-class VAE_Gumbel_NInstaState(VAE_Gumbel):
+class VAE_Gumbel_GlobalGate(VAE):
     # alpha is for  the exponential average
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, method = 'mean', alpha = 0.9):
-        super(VAE_Gumbel_NInstaState, self).__init__(input_size, hidden_layer_size, z_size, k, t)
-        self.method = method
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01):
+        super(VAE_Gumbel_GlobalGate, self).__init__(input_size, hidden_layer_size, z_size)
+        
+        self.k = k
+        self.t = t
 
-        assert alpha < 1
-        assert alpha > 0
+        self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size), torch.ones(input_size)).view(1, -1).requires_grad_(True))
 
-        self.logit_enc = None
         self.burned_in = False
-        self.alpha = alpha
-        self.logits_ae = nn.Sequential(
-                nn.Linear(input_size, input_size // 4),
-                nn.ReLU(),
-                nn.Linear(input_size // 4, input_size)
-            )
 
     def encode(self, x):
-
-
-
-        if not self.burned_in:
-            w = self.weight_creator(x)
-            w_recon = self.logits_ae(w)
-
-            if self.method == 'mean':
-                pre_enc = w.mean(dim = 0).view(1, -1)
-                w_recon_enc = w_recon.mean(dim = 0).view(1, -1)
-            elif self.method == 'median':
-                pre_enc = w.median(dim = 0)[0].view(1, -1)
-                w_recon_enc = w_recon.median(dim = 0)[0].view(1, -1)
-            else:
-                raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
-
-
-
-            #subset_indices = sample_subset(pre_enc, self.k, self.t)
-            # state_changed_loss = F.mse_loss(w, w_recon, reduction = 'sum')
-
-
-            if self.logit_enc is not None:
-                # repeat used here to avoid annoying warning
-                # don't use pre_enc here, since loss is spread and averaged.
-                # F.mse_loss(w, self.logit_enc.repeat_interleave(w.shape[0], 0), reduction = 'sum')
-                state_changed_loss = F.mse_loss(w_recon_enc, self.logit_enc, reduction = 'sum')
-                self.logit_enc = (self.alpha) * self.logit_enc + (1-self.alpha) * pre_enc
-                # otherwise have to keep track of a lot of gradients in the past # NOTE this applies for post burn in but detatch at every encoding because we don't now
-                # self.logit_enc = self.logit_enc.detach()
-                self.logit_enc = self.logit_enc.detach()
-            else: 
-                self.logit_enc = (1-self.alpha)*pre_enc.detach()
-                #self.logit_enc = pre_enc.detach()
-
-                state_changed_loss = 0
-
-        else:
-            state_changed_loss = 0
 
         subset_indices = sample_subset(self.logit_enc, self.k, self.t)
 
         x = x * subset_indices
         h1 = self.encoder(x)
         # en
-        return self.enc_mean(h1), self.enc_logvar(h1), state_changed_loss
+        return self.enc_mean(h1), self.enc_logvar(h1)
 
     def forward(self, x):
-        mu_latent, logvar_latent, logits_loss = self.encode(x)
+        mu_latent, logvar_latent = self.encode(x)
         z = self.reparameterize(mu_latent, logvar_latent)
         mu_x = self.decode(z)
-        return mu_x, mu_latent, logvar_latent, logits_loss
+        return mu_x, mu_latent, logvar_latent 
 
 
     def set_burned_in(self):
         self.burned_in = True
         # self.t = self.t / 10
-        if self.logit_enc is not None:
-            self.logit_enc = self.logit_enc.detach()
 
+# idea of having a Non Instance Wise Gumbel that also has a state to keep consistency across batches
+# probably some repetititon of code, but the issue is this class stuff, this is python 3 tho so it can be put into a good wrapper
+# that doesn't duplicate code
+class VAE_Gumbel_RunningState(VAE_Gumbel):
+    # alpha is for  the exponential average
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, method = 'mean', alpha = 0.9):
+        super(VAE_Gumbel_RunningState, self).__init__(input_size, hidden_layer_size, z_size, k = k, t = t)
+        self.method = method
+
+        assert alpha < 1
+        assert alpha > 0
+
+        self.logit_enc = None
+
+        self.burned_in = False
+        self.alpha = alpha
+        
+    def encode(self, x):
+        if self.training:
+            w = self.weight_creator(x)
+
+            if self.method == 'mean':
+                pre_enc = w.mean(dim = 0).view(1, -1)
+            elif self.method == 'median':
+                pre_enc = w.median(dim = 0)[0].view(1, -1)
+            else:
+                raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
+
+            #subset_indices = sample_subset(pre_enc, self.k, self.t)
+            # state_changed_loss = F.mse_loss(w, w_recon, reduction = 'sum')
+            if self.logit_enc is not None:
+                # repeat used here to avoid annoying warning
+                # don't use pre_enc here, since loss is spread and averaged.
+                self.logit_enc = (self.alpha) * self.logit_enc.detach() + (1-self.alpha) * pre_enc
+                # otherwise have to keep track of a lot of gradients in the past # NOTE this applies for post burn in but detatch at every encoding because we don't now
+                # self.logit_enc = self.logit_enc.detach()
+            else: 
+                self.logit_enc = (1-self.alpha)*pre_enc
+                #self.logit_enc = pre_enc.detach()
+
+
+        subset_indices = sample_subset(self.logit_enc, self.k, self.t)
+
+        x = x * subset_indices
+        h1 = self.encoder(x)
+        # en
+        return self.enc_mean(h1), self.enc_logvar(h1) 
+
+    def forward(self, x):
+        mu_latent, logvar_latent = self.encode(x)
+        z = self.reparameterize(mu_latent, logvar_latent)
+        mu_x = self.decode(z)
+        return mu_x, mu_latent, logvar_latent 
+
+
+    def set_burned_in(self):
+        self.burned_in = True
+        # to make sure it saves
+        self.logit_enc = nn.Parameter(self.logit_enc, requires_grad = False)
+        # self.logit_enc = self.logit_enc.detach()
+        # self.t = self.t / 10
+
+# NMSL is Not My Selection Layer
+# Implementing reference paper
+class ConcreteVAE_NMSL(VAE):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01):
+        # k because encoder actually uses k features as its input because of how concrete VAE picks it out
+        super(ConcreteVAE_NMSL, self).__init__(k, hidden_layer_size, z_size, output_size = input_size)
+        
+        self.k = k
+        self.t = t
+
+        self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size*k), torch.ones(input_size*k)).view(k, -1).requires_grad_(True))
+
+    def encode(self, x):
+        w = gumbel_keys(self.logit_enc, EPSILON = torch.finfo(torch.float32).eps)
+        w = torch.softmax(w/self.t, dim = -1)
+
+        # safe here because we do not use it in computation, only reference
+        self.subset_indices = w.clone().detach()
+
+        x = x.mm(w.transpose(0, 1))
+        h1 = self.encoder(x)
+        # en
+        return self.enc_mean(h1), self.enc_logvar(h1)
 
 def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
     loss_rec = F.binary_cross_entropy(recon_x, x, reduction='sum')
@@ -501,7 +540,6 @@ def train_truncated_with_gradients(df, model, optimizer, epoch, batch_size, Dim)
         optimizer.zero_grad()
         # do not calculate with respect to 
         batch_data.requires_grad_(False)
-        mu_x.requires_grad_(True)
         loss = loss_function_per_autoencoder(batch_data[:, :Dim], mu_x[:, :Dim], mu_latent, logvar_latent) 
         loss.backward()
         train_loss += loss.item()
@@ -520,65 +558,6 @@ def train_truncated_with_gradients(df, model, optimizer, epoch, batch_size, Dim)
     
     return gradients
     
-def train_truncated_with_gradients_gumbel_state(df, model, optimizer, epoch, batch_size, Dim, logits_changed_loss_lambda, DEBUG = False):
-    model.train()
-    train_loss = 0
-    cuda = True if torch.cuda.is_available() else False
-    device = torch.device("cuda:0" if cuda else "cpu")
-
-    permutations = torch.randperm(df.shape[0])
-    gradients = torch.zeros(df.shape[1]).to(device)
-    for i in range(math.ceil(len(df)/batch_size)):
-        batch_ind = permutations[i * batch_size : (i+1) * batch_size]
-        batch_data = df[batch_ind, :].clone().to(device)
-        
-        
-        # need to do this twice because deriative with respect to input not implemented in BCE
-        # so need to switch them up
-        optimizer.zero_grad()
-        batch_data.requires_grad_(True)
-        mu_x, mu_latent, logvar_latent, logits_loss = model(batch_data)
-        # why clone detach here?
-        # still want gradient with respect to input, but BCE gradient with respect to target is not defined
-        # plus we only want to see how input affects mu_x, not the target
-        loss = loss_function_per_autoencoder(batch_data[:, :Dim].clone().detach(), mu_x[:, :Dim], 
-                                             mu_latent, logvar_latent) 
-        
-        if DEBUG:
-            innn = random.randint(1, 100)
-            if innn == 10:
-                print("Loss " + str(loss) + "Logits Loss " + str(logits_loss))
-
-        loss += logits_changed_loss_lambda * logits_loss
-
-        loss.backward(retain_graph=True)
-
-        with torch.no_grad():
-            gradients += torch.sqrt(batch_data.grad ** 2).sum(dim = 0)
-        # no step
-        
-        optimizer.zero_grad()
-        # do not calculate with respect to 
-        batch_data.requires_grad_(False)
-        mu_x.requires_grad_(True)
-        loss = loss_function_per_autoencoder(batch_data[:, :Dim], mu_x[:, :Dim], mu_latent, logvar_latent) 
-        loss += logits_changed_loss_lambda * logits_loss
-        loss.backward()
-        train_loss += loss.item()
-        optimizer.step()
-        
-        
-        
-        if i % log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, i * len(batch_data), len(df),
-                100. * i * len(batch_data)/ len(df),
-                loss.item() / len(batch_data)))
-
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
-          epoch, train_loss / len(df)))
-    
-    return gradients
 
 def test(df, model, epoch, batch_size):
     model.eval()
