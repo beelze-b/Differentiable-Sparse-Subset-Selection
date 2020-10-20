@@ -356,8 +356,8 @@ class ConcreteVAE_NMSL(VAE):
         return self.enc_mean(h1), self.enc_logvar(h1)
 
 def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
-    loss_rec = F.binary_cross_entropy(recon_x, x, reduction='sum')
-    
+    # loss_rec = F.binary_cross_entropy(recon_x, x, reduction='sum')
+    loss_rec = F.mse_loss(recon_x, x, reduction='sum')
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
