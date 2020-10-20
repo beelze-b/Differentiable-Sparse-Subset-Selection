@@ -214,7 +214,7 @@ class VAE_Gumbel(VAE):
 # Not Instance_Wise Gumbel
 class VAE_Gumbel_NInsta(VAE_Gumbel):
     def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, method = 'mean', bias = True):
-        super(VAE_Gumbel_NInsta, self).__init__(input_size, hidden_layer_size, z_size, k, t)
+        super(VAE_Gumbel_NInsta, self).__init__(input_size, hidden_layer_size, z_size, k, t, bias = bias)
         self.method = method
 
 
