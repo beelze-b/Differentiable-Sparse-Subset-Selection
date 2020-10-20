@@ -20,30 +20,30 @@ log_interval = 20
 EPSILON = 1e-40
 
 
-def make_encoder(input_size, hidden_layer_size, z_size):
+def make_encoder(input_size, hidden_layer_size, z_size, bias = True):
 
     main_enc = nn.Sequential(
-            nn.Linear(input_size, hidden_layer_size),
+            nn.Linear(input_size, hidden_layer_size, bias = bias),
             nn.LeakyReLU()
             #nn.BatchNorm1d(1*hidden_layer_size),
         )
 
-    enc_mean = nn.Linear(hidden_layer_size, z_size)
-    enc_logvar = nn.Linear(hidden_layer_size, z_size)
+    enc_mean = nn.Linear(hidden_layer_size, z_size, bias = bias)
+    enc_logvar = nn.Linear(hidden_layer_size, z_size, bias = bias)
 
     return main_enc, enc_mean, enc_logvar
 
 
-def make_bernoulli_decoder(output_size, hidden_size, z_size):
+def make_bernoulli_decoder(output_size, hidden_size, z_size, bias = True):
 
     main_dec = nn.Sequential(
-            nn.Linear(z_size, 1*hidden_size),
+            nn.Linear(z_size, 1*hidden_size, bias = bias),
             #nn.BatchNorm1d(hidden_size),
             #nn.LeakyReLU(),
             #nn.Linear(hidden_size, 2* hidden_size),
             nn.LeakyReLU(),
             #nn.BatchNorm1d(1* hidden_size),
-            nn.Linear(1*hidden_size, output_size),
+            nn.Linear(1*hidden_size, output_size, bias = bias),
             #nn.BatchNorm1d(input_size),
             nn.Sigmoid()
         )
@@ -52,16 +52,16 @@ def make_bernoulli_decoder(output_size, hidden_size, z_size):
 
 
 class VAE(nn.Module):
-    def __init__(self, input_size, hidden_layer_size, z_size, output_size = None):
+    def __init__(self, input_size, hidden_layer_size, z_size, output_size = None, bias = True):
         super(VAE, self).__init__()
 
         if output_size is None:
             output_size = input_size
 
         self.encoder, self.enc_mean, self.enc_logvar = make_encoder(input_size,
-                hidden_layer_size, z_size)
+                hidden_layer_size, z_size, bias = bias)
 
-        self.decoder = make_bernoulli_decoder(output_size, hidden_layer_size, z_size)
+        self.decoder = make_bernoulli_decoder(output_size, hidden_layer_size, z_size, bias = bias)
 
 
     def encode(self, x):
@@ -83,8 +83,8 @@ class VAE(nn.Module):
         return mu_x, mu_latent, logvar_latent
 
 class VAE_l1_diag(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size):
-        super(VAE_l1_diag, self).__init__(input_size, hidden_layer_size , z_size)
+    def __init__(self, input_size, hidden_layer_size, z_size, bias = True):
+        super(VAE_l1_diag, self).__init__(input_size, hidden_layer_size , z_size, bias = bias)
         
         self.diag = nn.Parameter(torch.normal(torch.zeros(input_size), 
                                  torch.ones(input_size)).requires_grad_(True))
@@ -184,8 +184,8 @@ def sample_subset(w, k, t, separate = False, EPSILON = EPSILON):
 
 # L1 VAE model we are loading
 class VAE_Gumbel(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01):
-        super(VAE_Gumbel, self).__init__(input_size, hidden_layer_size, z_size)
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, bias = True):
+        super(VAE_Gumbel, self).__init__(input_size, hidden_layer_size, z_size, bias = bias)
         
         self.k = k
         self.t = t
@@ -198,7 +198,7 @@ class VAE_Gumbel(VAE):
         self.weight_creator = nn.Sequential(
             nn.Linear(input_size, hidden_layer_size),
             # nn.BatchNorm1d(hidden_layer_size),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, input_size),
             nn.LeakyReLU()
         )
@@ -213,7 +213,7 @@ class VAE_Gumbel(VAE):
 
 # Not Instance_Wise Gumbel
 class VAE_Gumbel_NInsta(VAE_Gumbel):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, method = 'mean'):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, method = 'mean', bias = True):
         super(VAE_Gumbel_NInsta, self).__init__(input_size, hidden_layer_size, z_size, k, t)
         self.method = method
 
@@ -239,8 +239,8 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
 # that doesn't duplicate code
 class VAE_Gumbel_GlobalGate(VAE):
     # alpha is for  the exponential average
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01):
-        super(VAE_Gumbel_GlobalGate, self).__init__(input_size, hidden_layer_size, z_size)
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, bias = True):
+        super(VAE_Gumbel_GlobalGate, self).__init__(input_size, hidden_layer_size, z_size, bias = bias)
         
         self.k = k
         self.t = t
@@ -274,8 +274,8 @@ class VAE_Gumbel_GlobalGate(VAE):
 # that doesn't duplicate code
 class VAE_Gumbel_RunningState(VAE_Gumbel):
     # alpha is for  the exponential average
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, method = 'mean', alpha = 0.9):
-        super(VAE_Gumbel_RunningState, self).__init__(input_size, hidden_layer_size, z_size, k = k, t = t)
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, method = 'mean', alpha = 0.9, bias = True):
+        super(VAE_Gumbel_RunningState, self).__init__(input_size, hidden_layer_size, z_size, k = k, t = t, bias = bias)
         self.method = method
 
         assert alpha < 1
@@ -334,9 +334,9 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
 # NMSL is Not My Selection Layer
 # Implementing reference paper
 class ConcreteVAE_NMSL(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, bias = True):
         # k because encoder actually uses k features as its input because of how concrete VAE picks it out
-        super(ConcreteVAE_NMSL, self).__init__(k, hidden_layer_size, z_size, output_size = input_size)
+        super(ConcreteVAE_NMSL, self).__init__(k, hidden_layer_size, z_size, output_size = input_size, bias = bias)
         
         self.k = k
         self.t = t
@@ -633,7 +633,7 @@ def generate_synthetic_data_with_noise(N, z_size, D, D_noise = None):
         nn.Linear(z_size, 2 * z_size, bias=False),
         nn.Tanh(),
         nn.Linear(2 * z_size, D, bias = True),
-        nn.ReLU()
+        nn.LeakyReLU()
         ).to(device)
 
     data_mapper.requires_grad_(False)
