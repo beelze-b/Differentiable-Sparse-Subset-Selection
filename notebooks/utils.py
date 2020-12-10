@@ -24,6 +24,13 @@ def make_encoder(input_size, hidden_layer_size, z_size, bias = True):
 
     main_enc = nn.Sequential(
             nn.Linear(input_size, hidden_layer_size, bias = bias),
+            nn.BatchNorm1d(1* hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, hidden_layer_size, bias = bias),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, hidden_layer_size, bias = bias),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU()
             #nn.BatchNorm1d(1*hidden_layer_size),
         )
@@ -38,7 +45,7 @@ def make_bernoulli_decoder(output_size, hidden_size, z_size, bias = True):
 
     main_dec = nn.Sequential(
             nn.Linear(z_size, 1*hidden_size, bias = bias),
-            #nn.BatchNorm1d(hidden_size),
+            nn.BatchNorm1d(hidden_size),
             #nn.LeakyReLU(),
             #nn.Linear(hidden_size, 2* hidden_size),
             nn.LeakyReLU(),
@@ -48,7 +55,31 @@ def make_bernoulli_decoder(output_size, hidden_size, z_size, bias = True):
             nn.Sigmoid()
         )
 
+
     return main_dec
+
+def make_gaussian_decoder(output_size, hidden_size, z_size, bias = True):
+
+    main_dec = nn.Sequential(
+            nn.Linear(z_size, 1*hidden_size, bias = bias),
+            nn.BatchNorm1d(hidden_size),
+            #nn.LeakyReLU(),
+            #nn.Linear(hidden_size, 2* hidden_size),
+            nn.LeakyReLU(),
+            #nn.BatchNorm1d(1* hidden_size),
+            nn.Linear(1*hidden_size, output_size, bias = bias),
+            # just because predicting zeisel data is >= 0
+            nn.LeakyReLU()
+        )
+
+    dec_logvar = nn.Sequential(
+            nn.Linear(z_size, hidden_size, bias = bias),
+            nn.BatchNorm1d(hidden_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_size, output_size, bias = bias)
+            )
+    
+    return main_dec, dec_logvar
 
 
 class VAE(nn.Module):
@@ -61,7 +92,7 @@ class VAE(nn.Module):
         self.encoder, self.enc_mean, self.enc_logvar = make_encoder(input_size,
                 hidden_layer_size, z_size, bias = bias)
 
-        self.decoder = make_bernoulli_decoder(output_size, hidden_layer_size, z_size, bias = bias)
+        self.decoder, self.dec_logvar = make_gaussian_decoder(output_size, hidden_layer_size, z_size, bias = bias)
 
 
     def encode(self, x):
@@ -80,7 +111,9 @@ class VAE(nn.Module):
         mu_latent, logvar_latent = self.encode(x)
         z = self.reparameterize(mu_latent, logvar_latent)
         mu_x = self.decode(z)
-        return mu_x, mu_latent, logvar_latent
+        logvar_x = self.dec_logvar(z)
+
+        return mu_x, logvar_x, mu_latent, logvar_latent
 
 class VAE_l1_diag(VAE):
     def __init__(self, input_size, hidden_layer_size, z_size, bias = True):
@@ -99,8 +132,8 @@ class VAE_l1_diag(VAE):
 def gumbel_keys(w, EPSILON):
     # sample some gumbels
     uniform = (1.0 - EPSILON) * torch.rand_like(w) + EPSILON
-    z = torch.log(-torch.log(uniform))
-    w = w + z
+    z = -torch.log(-torch.log(uniform))
+    w = torch.log(w) + z
     return w
 
 
@@ -114,7 +147,7 @@ def continuous_topk(w, k, t, separate=False, EPSILON = EPSILON):
     for i in range(k):
         ### conver the following into pytorch
         ## ORIGINAL: khot_mask = tf.maximum(1.0 - onehot_approx, EPSILON)
-        max_mask = 1 - onehot_approx < EPSILON
+        max_mask = (1 - onehot_approx) < EPSILON
         khot_mask = 1 - onehot_approx
         khot_mask[max_mask] = EPSILON
         
@@ -197,7 +230,10 @@ class VAE_Gumbel(VAE):
         # (values between -1 and 10 for first output seem fine)
         self.weight_creator = nn.Sequential(
             nn.Linear(input_size, hidden_layer_size),
-            # nn.BatchNorm1d(hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, input_size),
             nn.LeakyReLU()
@@ -258,12 +294,6 @@ class VAE_Gumbel_GlobalGate(VAE):
         # en
         return self.enc_mean(h1), self.enc_logvar(h1)
 
-    def forward(self, x):
-        mu_latent, logvar_latent = self.encode(x)
-        z = self.reparameterize(mu_latent, logvar_latent)
-        mu_x = self.decode(z)
-        return mu_x, mu_latent, logvar_latent 
-
 
     def set_burned_in(self):
         self.burned_in = True
@@ -317,14 +347,10 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         # en
         return self.enc_mean(h1), self.enc_logvar(h1) 
 
-    def forward(self, x):
-        mu_latent, logvar_latent = self.encode(x)
-        z = self.reparameterize(mu_latent, logvar_latent)
-        mu_x = self.decode(z)
-        return mu_x, mu_latent, logvar_latent 
-
+    
 
     def set_burned_in(self):
+        self.eval()
         self.burned_in = True
         # to make sure it saves
         self.logit_enc = nn.Parameter(self.logit_enc, requires_grad = False)
@@ -355,9 +381,14 @@ class ConcreteVAE_NMSL(VAE):
         # en
         return self.enc_mean(h1), self.enc_logvar(h1)
 
-def loss_function_per_autoencoder(x, recon_x, mu_latent, logvar_latent):
+def loss_function_per_autoencoder(x, recon_x, logvar_x, mu_latent, logvar_latent):
     # loss_rec = F.binary_cross_entropy(recon_x, x, reduction='sum')
-    loss_rec = F.mse_loss(recon_x, x, reduction='sum')
+    # loss_rec = F.mse_loss(recon_x, x, reduction='sum')
+    loss_rec = -torch.sum(
+            (-0.5 * np.log(2.0 * np.pi))
+            + (-0.5 * logvar_x)
+            + ((-0.5 / torch.exp(logvar_x)) * (x - recon_x) ** 2.0)
+            )
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -383,11 +414,11 @@ def loss_function_joint(x, ae_1, ae_2):
     # assuming that both autoencoders return recon_x, mu, and logvar
     # try to make ae_1 the vanilla vae
     # ae_2 should be the L1 penalty VAE
-    mu_x_1, mu_latent_1, logvar_latent_1 = ae_1(x)
-    mu_x_2, mu_latent_2, logvar_latent_2 = ae_2(x)
+    mu_x_1, logvar_x_1, mu_latent_1, logvar_latent_1 = ae_1(x)
+    mu_x_2, logvar_x_2, mu_latent_2, logvar_latent_2 = ae_2(x)
     
-    loss_vae_1 = loss_function_per_autoencoder(x, mu_x_1, mu_latent_1, logvar_latent_1)
-    loss_vae_2 = loss_function_per_autoencoder(x, mu_x_2, mu_latent_2, logvar_latent_2)
+    loss_vae_1 = loss_function_per_autoencoder(x, mu_x_1, logvar_x_1, mu_latent_1, logvar_latent_1)
+    loss_vae_2 = loss_function_per_autoencoder(x, mu_x_2, logvar_x_2, mu_latent_2, logvar_latent_2)
     joint_kld_loss = kld_joint_autoencoders(mu_latent_1, mu_latent_2, logvar_latent_1, logvar_latent_1)
     #print("Losses")
     #print(loss_vae_1)
@@ -404,16 +435,16 @@ def train(df, model, optimizer, epoch, batch_size):
         batch_data = df[batch_ind, :]
         
         optimizer.zero_grad()
-        mu_x, mu_latent, logvar_latent = model(batch_data)
-        loss = loss_function_per_autoencoder(batch_data, mu_x, mu_latent, logvar_latent) 
+        mu_x, logvar_x, mu_latent, logvar_latent = model(batch_data)
+        loss = loss_function_per_autoencoder(batch_data, mu_x, logvar_x, mu_latent, logvar_latent) 
         loss.backward()
         train_loss += loss.item()
         optimizer.step()
         
         if i % log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, i * len(batch_data), len(df),
-                100. * i * len(batch_data)/ len(df),
+                epoch, (i+1) * len(batch_data), len(df),
+                100. * (i+1) * len(batch_data)/ len(df),
                 loss.item() / len(batch_data)))
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(
@@ -441,8 +472,8 @@ def train_pre_trained(df, model, optimizer, epoch, pretrained_model, batch_size)
         
         if i % log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, i * len(batch_data), len(df),
-                100. * i * len(batch_data)/ len(df),
+                epoch, (i+1) * len(batch_data), len(df),
+                100. * (i+1) * len(batch_data)/ len(df),
                 loss.item() / len(batch_data)))
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(
@@ -472,8 +503,8 @@ def train_joint(df, model1, model2, optimizer, epoch, batch_size):
         
         if i % log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, i * len(batch_data), len(df),
-                100. * i * len(batch_data)/ len(df),
+                epoch, (i+1) * len(batch_data), len(df),
+                100. * (i+1) * len(batch_data)/ len(df),
                 loss.item() / len(batch_data)))
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(
@@ -501,8 +532,8 @@ def train_l1(df, model, optimizer, epoch, batch_size):
         
         if i % log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, i * len(batch_data), len(df),
-                100. * i * len(batch_data) / len(df),
+                epoch, (i+1) * len(batch_data), len(df),
+                100. * (i+1) * len(batch_data) / len(df),
                 loss.item() / len(batch_data)))
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(
@@ -549,8 +580,8 @@ def train_truncated_with_gradients(df, model, optimizer, epoch, batch_size, Dim)
         
         if i % log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, i * len(batch_data), len(df),
-                100. * i * len(batch_data)/ len(df),
+                epoch, (i+1) * len(batch_data), len(df),
+                100. * (i+1) * len(batch_data)/ len(df),
                 loss.item() / len(batch_data)))
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(
