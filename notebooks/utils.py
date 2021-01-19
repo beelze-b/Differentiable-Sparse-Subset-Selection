@@ -133,7 +133,7 @@ def gumbel_keys(w, EPSILON):
     # sample some gumbels
     uniform = (1.0 - EPSILON) * torch.rand_like(w) + EPSILON
     z = -torch.log(-torch.log(uniform))
-    w = torch.log(w) + z
+    w = w + z
     return w
 
 

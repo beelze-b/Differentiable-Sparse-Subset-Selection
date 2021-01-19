@@ -679,7 +679,7 @@ Meeting December 17
 * Paul Data: 
     * So ConcreteVAE has best cosine angle but worse accuracy and graphs?? [link here](https://colab.research.google.com/drive/1yVN8K6tBxGUqKZsmT7uc_B95K2RYJ9vC)
     ConcreteVAE can actually boost the reconstruction whereas we can only match the BAC/AC and not boost it with RunningState
-  * Here is [one](https://colab.research.google.com/drive/13TKdqYw2YCGsFBihAPGvudLHeBLo0-Lw) of the same that looks like a phallus for concrete vae but running state does slightly worse
+  * Here is [one](https://colab.research.google.com/drive/13TKdqYw2YCGsFBihAPGvudLHeBLo0-Lw) of the same that looks like something for concrete vae but running state does slightly worse
     * [A version where I fix the logits being used for running State](https://colab.research.google.com/drive/1jqnOCeUfpL9mYC3hSjiGO-RmIcuIGPEz)
       * We are comparable to 84Markers from RankCorr SUCCESS!!!
       * **Best version including visualizations**
