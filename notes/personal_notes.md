@@ -696,10 +696,39 @@ Work on Jan 18
   * Going to use their own markers on our test data (and their markers should overfit nonetheless)
   * Should I normalize the data differently (log normalize?)
     * switch to log normalization gave comparable results on the RFC so probably not worthwhile route
-
 * need to have 16 and 17 notebooks with the final classifiers
 
-  
+Sunday Jan 24th
+
+* mostly experimented with adding more layers, adjusting learning rates from e-10 to e-5, using smaller layers, and different optimizers
+* Should the classifier in the metrics printer be different for recon data and original data? I guess we want to see if the recon data undergoes significant training effects as well. *Might be worth also looking at how the errors from reconstruction affects the model trained on the original data*
+* **Add more stuff to the metrics such as showing rmse (for markers too) and rmse for the highest magnitude features**
+  * **Fixed bug that it needed model.eval() if not already in eval**
+* **noticed that I never published metrics of markers by squeezefit for paul, but it was along our runningstate performance so it is fine**
+* SGD needs drastically lower learning rate than ADAM
+  * also needed a scheduler
+  * or initialized weights
+* Weight initialization is not as important as i thought
+* Configs
+  * how many layers
+  * how many in each layer
+  * what is the learning rate and optimizer (and decay rate if applicable)?
+  * over how many k looking topk for rmse?
+  * were both AC recon no markers and cosine improved?
+* [Notebook](https://colab.research.google.com/drive/1JU9DLQMvze7SqUFq9cIVf39AEIA_iSDW)
+  * loaded version is SGD with momentum and a scheduler
+  * pinned is a version with Adam
+  * both achieve higher BAC recon data, AC recon data, and cosine angle. Relatively decent rmse for top k. harder to reduce that.
+  * if want to use, need to overload decoder/encoder, learning rate, and training procedure
+  * Need to also remember the modifications to the output metrics as they provide useful info
+  * Couldn't make it so that the highest value output match to the highest value input (still too sparse)
+* on no markers: can expect AC recon of .47, BAC recon of at least .4, and an cosine angle of at least .5, and rmse on topk on test to be .25 to 2.7 and on train from .22 to .25
+* High value data seememd rarer than I thought so it makes sense network doesn't predict it that often
+  * predictions seem to be valid in the 0 to 0.1 range
+  * could have done sample weighting to give reasonable performance on rare events
+* Overall more layers and smaller layers help.
+
+
 
 
 ### Log Events
