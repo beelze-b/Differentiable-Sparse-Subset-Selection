@@ -698,7 +698,7 @@ Work on Jan 18
     * switch to log normalization gave comparable results on the RFC so probably not worthwhile route
 * need to have 16 and 17 notebooks with the final classifiers
 
-Sunday Jan 24th
+Sunday Jan 24th - Could I get good reconstruction on paul base vae?
 
 * mostly experimented with adding more layers, adjusting learning rates from e-10 to e-5, using smaller layers, and different optimizers
 * Should the classifier in the metrics printer be different for recon data and original data? I guess we want to see if the recon data undergoes significant training effects as well. *Might be worth also looking at how the errors from reconstruction affects the model trained on the original data*
@@ -726,9 +726,19 @@ Sunday Jan 24th
 * High value data seememd rarer than I thought so it makes sense network doesn't predict it that often
   * predictions seem to be valid in the 0 to 0.1 range
   * could have done sample weighting to give reasonable performance on rare events
+  * could have done transfer learning for the harder instances
 * Overall more layers and smaller layers help.
-
-
+* log-normalizing instead of minmax scaling seems to help A LOT while still having reasoning mean and variance on the output (pretty cool that our logvar is pretty close to empirical logvar even for non-minmax data)
+  * using batchnorm doesn't hurt as long as it is not after first or before last layers
+  * minmax scaling is just bad for this because present "outliers"
+* [Version](https://colab.research.google.com/drive/1IWvga7gKIaE_bksAIbUH-Vb9OMH0zvMS) of base VAE that uses log normalization and transfer learning for high magnitude samples
+  * highest cosine angle for reconstruction and AC recon actually higher than AC orig
+* min max scaling causes the losses of data in the low-value cluster to be sampled much more than the losses of possible outliers and it also makes then worse compared to other features with much lower max
+  * log normalizing not only spreads out the distribution but doesn't under penalize features with more high values
+  * worse effect for log loss because sigmoid slowdown
+  * If you wan to use minmax scaling to use sigmoid, log normalize first so it is more robust to outliers.
+    * [Your resulting sigmoids](https://colab.research.google.com/drive/1jEgMNmVSuG2gWBqAy2gJoF3ugnbLixyJ) will be much better saturated towards one than before.
+    * you won't need to transfer [learn for rare samples either](https://colab.research.google.com/drive/1Rw1VHUGb4_wHYgzs0zzOH1AblPAHdeyf)
 
 
 ### Log Events
