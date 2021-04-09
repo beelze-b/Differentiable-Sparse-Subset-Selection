@@ -14,6 +14,8 @@ import random
 
 from sklearn.preprocessing import MinMaxScaler
 
+from sklearn.ensemble import RandomForestClassifier
+
 log_interval = 20
 
 # rounding up lowest float32 on my system
@@ -294,6 +296,9 @@ class VAE_Gumbel_GlobalGate(VAE):
         # en
         return self.enc_mean(h1), self.enc_logvar(h1)
 
+    def top_logits(self, data):
+
+
 
     def set_burned_in(self):
         self.burned_in = True
@@ -347,7 +352,21 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         # en
         return self.enc_mean(h1), self.enc_logvar(h1) 
 
-    
+    # data can be null
+    def top_logits(self, data):
+        with torch.no_grad():
+            w = self.logit_enc.clone().view(-1)
+            top_k_logits = torch.topk(w, k = self.k, sorted = True)[1]
+            enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = data.shape[1]).sum(dim = 0)
+            
+            #subsets = sample_subset(w, model.k,model.t,True)
+            subsets = sample_subset(w, self.k,model.t)
+            #max_idx = torch.argmax(subsets, 1, keepdim=True)
+            #one_hot = Tensor(subsets.shape)
+            #one_hot.zero_()
+            #one_hot.scatter_(1, max_idx, 1)
+        
+        return enc_top_logits, subsets
 
     def set_burned_in(self):
         self.eval()
@@ -380,6 +399,26 @@ class ConcreteVAE_NMSL(VAE):
         h1 = self.encoder(x)
         # en
         return self.enc_mean(h1), self.enc_logvar(h1)
+
+    # data can be NULL
+    def top_logits(self, data):
+        with torch.no_grad():
+
+            w = gumbel_keys(self.logit_enc, EPSILON = torch.finfo(torch.float32).eps)
+            w = torch.softmax(w/self.t, dim = -1)
+            subset_indices = w.clone().detach()
+
+            #max_idx = torch.argmax(subset_indices, 1, keepdim=True)
+            #one_hot = Tensor(subset_indices.shape)
+            #one_hot.zero_()
+            #one_hot.scatter_(1, max_idx, 1)
+
+            all_subsets = subset_indices.sum(dim = 0)
+
+            inds = torch.argsort(subset_indices.sum(dim = 0), descending = True)[:model.k]
+            all_logits = torch.nn.functional.one_hot(inds, num_classes = data.shape[1]).sum(dim = 0)
+        
+        return all_logits, all_subsets
 
 def loss_function_per_autoencoder(x, recon_x, logvar_x, mu_latent, logvar_latent):
     # loss_rec = F.binary_cross_entropy(recon_x, x, reduction='sum')
@@ -588,7 +627,7 @@ def train_truncated_with_gradients(df, model, optimizer, epoch, batch_size, Dim)
           epoch, train_loss / len(df)))
     
     return gradients
-    
+
 
 def test(df, model, epoch, batch_size):
     model.eval()
@@ -626,6 +665,82 @@ def test_joint(df, model1, model2, epoch, batch_size):
     print('====> Test set loss: {:.4f}'.format(test_loss))
     return test_loss
 
+
+def load_model(model_loader, input_size, hidden_size, z_size, bias, path, **kwargs):
+    model = model_loader(input_size, hidden_size, z_size, bias = bias, **kwargs)
+    if isinstance(model, VAE_Gumbel_RunningState):
+        model.logit_enc = nn.Parameter(torch.zeros(input_size).view(1,-1))
+    model.load_state_dict(torch.load(path))
+    model.eval()
+    model.to(device)
+    return model
+
+
+####### Metrics
+
+def average_cosine_angle(d1, d2):
+    dotprod = torch.sum(d1*d2, dim = 1)
+    lengths1 = torch.norm(d1, dim = 1)
+    lengths2 = torch.norm(d2, dim = 1)
+
+    # to handle when a vector is all 0
+    markers1 = lengths1 == 0
+    markers2 = lengths2 == 0
+    lengths1[markers1] = 1
+    lengths2[markers2] =1
+
+    return torch.mean(dotprod / (lengths1 * lengths2))
+
+
+# balanced accuracy per k
+# accuracy per k
+# return both train and test
+# with markers and without
+def metrics_model(train_data, train_labels, test_data, test_labels, markers, model, k = None):
+    # if model is none don't do a confusion matrix for the model with markers
+
+    classifier_orig = RandomForestClassifier(n_jobs = -1)
+    classifier_orig_markers = RandomForestClassifier(n_jobs = -1)
+
+    classifier_orig.fit(train_data.cpu(), train_labels)
+    classifier_orig_markers.fit(train_data[:,markers].cpu(), train_labels)
+    
+
+    classifier_recon = RandomForestClassifier(n_jobs = -1)
+    classifier_recon_markers = RandomForestClassifier(n_jobs = -1)
+
+    with torch.no_grad():
+        train_data_recon = model(train_data)[0].cpu()
+        classifier_recon.fit(train_data_recon, train_labels)
+        classifier_recon_markers.fit(train_data_recon[:, markers], train_labels)
+
+
+        bac_orig = balanced_accuracy_score(test_labels, classifier_orig.predict(test_data.cpu()))
+        bac_orig_markers = balanced_accuracy_score(test_labels, classifier_orig_markers.predict(test_data[:, markers].cpu()))
+        bac_recon = balanced_accuracy_score(test_labels, classifier_recon.predict(model(test_data)[0].cpu()))
+        bac_recon_markers = balanced_accuracy_score(test_labels, classifier_recon_markers.predict(model(test_data)[0][:,markers].cpu()))
+
+        accuracy_orig = accuracy_score(test_labels, classifier_orig.predict(test_data.cpu()))
+        accuracy_orig_markers = accuracy_score(test_labels, classifier_orig_markers.predict(test_data[:, markers].cpu()))
+        accuracy_recon = accuracy_score(test_labels, classifier_recon.predict(model(test_data)[0].cpu()))
+        accuracy_recon_markers = accuracy_score(test_labels, classifier_recon_markers.predict(model(test_data)[0][:,markers].cpu()))
+
+
+        cos_angle_no_markers = average_cosine_angle(test_data, model(test_data)[0]).item()
+        cos_angle_markers = average_cosine_angle(test_data[:, markers], model(test_data)[0][:, markers]).item()
+
+
+    return {'k': k, 
+            'BAC Original Data': bac_orig, 'BAC Original Data Markers': bac_orig_markers, 'BAC Recon Data': bac_recon, 'BAC Recon Data Markers': bac_recon_markers,
+            'AC Original Data': accuracy_orig, 'AC Original Data Markers': accuracy_orig_markers, 'AC Recon Data': accuracy_recon, 'AC Recon Data Markers': accuracy_recon_markers,
+            'Cosine Angle Between Data and Reconstruction (No Markers)': cos_angle_no_markers,
+            'Cosine Angle Beteween Marked Data and Marked Reconstruction Data': cos_angle_markers
+            }
+
+
+
+#######
+    
 
 def quick_model_summary(model, train_data, test_data, threshold, batch_size):
     input_size = train_data.shape[1]
