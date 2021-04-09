@@ -676,6 +676,44 @@ def test_joint(df, model1, model2, epoch, batch_size):
     return test_loss
 
 
+def train_model(train_data, model):
+    optimizer = torch.optim.Adam(model.parameters(), 
+                                 lr=lr, 
+                                 betas = (b1,b2))
+    
+    
+    for epoch in range(1, n_epochs+1):
+        train(train_data, 
+              model, 
+              optimizer, 
+              epoch, 
+              batch_size)
+        model.t = max(0.001, model.t * 0.99)
+    return model
+
+def save_model(base_path, model):
+    # make directory
+    if not os.path.exists(os.path.dirname(base_path)):
+        try:
+            os.makedirs(os.path.dirname(base_path))
+        except OSError as exc: # Guard against race condition
+            if exc.errno != errno.EEXIST:
+                raise Exception("COULD NOT MAKE PATH")
+    with open(base_path, 'wb') as PATH:
+        torch.save(model.state_dict(), PATH)
+
+def weights_init(m):
+    if isinstance(m, nn.Linear):
+        torch.nn.init.xavier_uniform_(m.weight)
+        if m.bias is not None:
+            torch.nn.init.zeros_(m.bias)
+
+def train_save_model(train_data, model, base_path):
+    train_model(train_data, model)
+    if isinstance(model, VAE_Gumbel_RunningState):
+        model.set_burned_in()
+    save_model(base_path, model)
+
 def load_model(model_loader, input_size, hidden_size, z_size, bias, path, **kwargs):
     model = model_loader(input_size, hidden_size, z_size, bias = bias, **kwargs)
     if isinstance(model, VAE_Gumbel_RunningState):
