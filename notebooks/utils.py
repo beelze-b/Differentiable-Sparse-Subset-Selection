@@ -296,8 +296,20 @@ class VAE_Gumbel_GlobalGate(VAE):
         # en
         return self.enc_mean(h1), self.enc_logvar(h1)
 
-    def top_logits(self, data):
+    def top_logits(self):
+        with torch.no_grad():
+            w = self.logit_enc.clone().view(-1)
+            top_k_logits = torch.topk(w, k = self.k, sorted = True)[1]
+            enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = data.shape[1]).sum(dim = 0)
 
+            #subsets = sample_subset(w, model.k,model.t,True)
+            subsets = sample_subset(w, self.k,model.t)
+            #max_idx = torch.argmax(subsets, 1, keepdim=True)
+            #one_hot = Tensor(subsets.shape)
+            #one_hot.zero_()
+            #one_hot.scatter_(1, max_idx, 1)
+
+        return enc_top_logits, subsets
 
 
     def set_burned_in(self):
@@ -352,8 +364,7 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         # en
         return self.enc_mean(h1), self.enc_logvar(h1) 
 
-    # data can be null
-    def top_logits(self, data):
+    def top_logits(self):
         with torch.no_grad():
             w = self.logit_enc.clone().view(-1)
             top_k_logits = torch.topk(w, k = self.k, sorted = True)[1]
@@ -400,8 +411,7 @@ class ConcreteVAE_NMSL(VAE):
         # en
         return self.enc_mean(h1), self.enc_logvar(h1)
 
-    # data can be NULL
-    def top_logits(self, data):
+    def top_logits(self):
         with torch.no_grad():
 
             w = gumbel_keys(self.logit_enc, EPSILON = torch.finfo(torch.float32).eps)
@@ -737,9 +747,80 @@ def metrics_model(train_data, train_labels, test_data, test_labels, markers, mod
             'Cosine Angle Beteween Marked Data and Marked Reconstruction Data': cos_angle_markers
             }
 
+def confusion_matrix_orig_recon(train_data, train_labels, test_data, test_labels, markers, model):
+    # if model is none don't do a confusion matrix for the model with markers
+    train_labels = zeisel_label_encoder.transform(train_labels)
+    test_labels = zeisel_label_encoder.transform(test_labels)
 
+    classifier_orig = RandomForestClassifier(n_jobs = -1)
+    classifier_orig_markers = RandomForestClassifier(n_jobs = -1)
+
+    classifier_orig.fit(train_data.cpu(), train_labels)
+    classifier_orig_markers.fit(train_data[:,markers].cpu(), train_labels)
+    
+
+    classifier_recon = RandomForestClassifier(n_jobs = -1)
+    classifier_recon_markers = RandomForestClassifier(n_jobs = -1)
+
+    with torch.no_grad():
+        train_data_recon = model(train_data)[0].cpu()
+        classifier_recon.fit(train_data_recon, train_labels)
+        classifier_recon_markers.fit(train_data_recon[:, markers], train_labels)
+
+
+        cm_orig = confusion_matrix(test_labels, classifier_orig.predict(test_data.cpu()))
+        cm_orig_markers = confusion_matrix(test_labels, classifier_orig_markers.predict(test_data[:, markers].cpu()))
+        cm_recon = confusion_matrix(test_labels, classifier_recon.predict(model(test_data)[0].cpu()))
+        cm_recon_markers = confusion_matrix(test_labels, classifier_recon_markers.predict(model(test_data)[0][:,markers].cpu()))
+
+        accuracy_orig = accuracy_score(test_labels, classifier_orig.predict(test_data.cpu()))
+        accuracy_orig_markers = accuracy_score(test_labels, classifier_orig_markers.predict(test_data[:, markers].cpu()))
+        accuracy_recon = accuracy_score(test_labels, classifier_recon.predict(model(test_data)[0].cpu()))
+        accuracy_recon_markers = accuracy_score(test_labels, classifier_recon_markers.predict(model(test_data)[0][:,markers].cpu()))
+
+
+    print("Note: Makers here are significant for the classification. Markers are used to select which features of the (possibly Reconstructed) Data go into classifier")
+    print("Confusion Matrix of Original Data")
+    print(cm_orig)
+    print("Accuracy {}".format(accuracy_orig))
+
+
+    print("Confusion Matrix of Original Data Selected by Markers.")
+    print(cm_orig_markers)
+    print("Accuracy {}".format(accuracy_orig_markers))
+
+    print("Confusion Matrix of Reconstructed Data")
+    print(cm_recon)
+    print("Accuracy {}".format(accuracy_recon))
+
+    print("Confusion Matrix of Reconstructed Data by Markers")
+    print(cm_recon_markers)
+    print("Accuracy {}".format(accuracy_recon_markers))
 
 #######
+
+
+### graph
+
+def graph_umap_embedding(data, labels, title, encoder, num_classes):
+    assert encoder.classes_ == num_classes
+    data = data.detach().cpu()
+    embedding = umap.UMAP(n_neighbors=10, min_dist= 0.05).fit_transform(data)
+    
+    
+    fig, ax = plt.subplots(1, figsize=(12, 8.5))
+    
+    plt.scatter(*embedding.T, c = paul_encoder.transform(labels))
+    plt.setp(ax, xticks=[], yticks=[])
+    
+    cbar = plt.colorbar(ticks=np.arange(num_classes), boundaries = np.arange(num_classes) - 0.5)
+    cbar.ax.set_yticklabels(encoder.classes_)
+    
+    plt.title(title)
+
+    plt.show()
+
+###
     
 
 def quick_model_summary(model, train_data, test_data, threshold, batch_size):
