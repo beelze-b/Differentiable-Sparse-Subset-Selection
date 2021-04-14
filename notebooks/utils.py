@@ -746,22 +746,22 @@ def test_joint(df, model1, model2, epoch, batch_size):
     return test_loss
 
 
-def train_model(train_data, model):
-    optimizer = torch.optim.Adam(model.parameters(), 
-                                 lr=lr, 
-                                 betas = (b1,b2))
+def train_model(model, train_dataloader, test_dataloader, gpus, max_epochs = 600):
+    trainer = pl.Trainer(gpus = gpus, max_epochs = max_epochs, min_epochs=50, auto_lr_find=True)
+    lr_finder = trainer.tuner.lr_find(model, train_dataloader=train_dataloader)
     
     
-    for epoch in range(1, n_epochs+1):
-        train(train_data, 
-              model, 
-              optimizer, 
-              epoch, 
-              batch_size)
-        model.t = max(0.001, model.t * 0.99)
-    return model
+    # Pick point based on plot, or get suggestion
+    new_lr = lr_finder.suggestion()
+    
+    # update hparams of the model
+    model.hparams.learning_rate = new_lr
+    model.learning_rate = new_lr
 
-def save_model(base_path, model):
+    trainer.fit(model, train_dataloader, val_dataloader)
+    return trainer
+
+def save_model(base_path, trainer):
     # make directory
     if not os.path.exists(os.path.dirname(base_path)):
         try:
@@ -769,8 +769,7 @@ def save_model(base_path, model):
         except OSError as exc: # Guard against race condition
             if exc.errno != errno.EEXIST:
                 raise Exception("COULD NOT MAKE PATH")
-    with open(base_path, 'wb') as PATH:
-        torch.save(model.state_dict(), PATH)
+    trainer.save_checkpoint(base_path, weights_only = True)
 
 def weights_init(m):
     if isinstance(m, nn.Linear):
@@ -779,18 +778,11 @@ def weights_init(m):
             torch.nn.init.zeros_(m.bias)
 
 def train_save_model(train_data, model, base_path):
-    train_model(train_data, model)
-    if isinstance(model, VAE_Gumbel_RunningState):
-        model.set_burned_in()
-    save_model(base_path, model)
+    trainer = train_model(train_data, model)
+    save_model(base_path, trainer)
 
-def load_model(model_loader, input_size, hidden_size, z_size, bias, path, **kwargs):
-    model = model_loader(input_size, hidden_size, z_size, bias = bias, **kwargs)
-    if isinstance(model, VAE_Gumbel_RunningState):
-        model.logit_enc = nn.Parameter(torch.zeros(input_size).view(1,-1))
-    model.load_state_dict(torch.load(path))
-    model.eval()
-    model.to(device)
+def load_model(module_class, checkpoint_path)
+    model = module_class.load_from_checkpoint(checkpoint_path)
     return model
 
 
