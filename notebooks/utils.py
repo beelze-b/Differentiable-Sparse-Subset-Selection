@@ -253,7 +253,7 @@ class VAE_Gumbel(VAE):
         self.save_hyperparameters()
         
         self.k = k
-        self.t = t
+        self.register_buffer('t', torch.Tensor(t))
         self.temperature_decay = temperature_decay
         
         # end with more positive to make logit debugging easier
@@ -322,7 +322,7 @@ class VAE_Gumbel_GlobalGate(VAE):
         self.save_hyperparameters()
         
         self.k = k
-        self.t = t
+        self.register_buffer('t', torch.Tensor(t))
         self.temperature_decay = temperature_decay
 
         self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size, device = self.device), torch.ones(input_size, device = self.device)).view(1, -1).requires_grad_(True))
@@ -455,7 +455,7 @@ class ConcreteVAE_NMSL(VAE):
         self.save_hyperparameters()
         
         self.k = k
-        self.t = t
+        self.register_buffer('t', torch.Tensor(t))
         self.temperature_decay = temperature_decay
 
         self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size*k, device = self.device), torch.ones(input_size*k, device = self.device)).view(k, -1).requires_grad_(True))
