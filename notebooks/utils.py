@@ -1,4 +1,3 @@
-
 import numpy as np
 
 import torch
@@ -89,7 +88,7 @@ def make_gaussian_decoder(output_size, hidden_size, z_size, bias = True):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, input_size, hidden_layer_size, z_size, output_size = None, bias = True, learning_rate =  0.000001, kl_beta = 0.1):
+    def __init__(self, input_size, hidden_layer_size, z_size, output_size = None, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
         super(VAE, self).__init__()
 
         if output_size is None:
@@ -130,13 +129,21 @@ class VAE(pl.LightningModule):
         self.log('train_loss', loss)
         return loss
 
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        mu_x, logvar_x, mu_latent, logvar_latent = self(x)
+        loss = loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent, kl_beta = self.kl_beta) 
+        self.log('val_loss', loss)
+        return loss
+
+
     def configure_optimizers(self):
-        return Adam(self.parameters(), lr = self.lr)
+        return torch.optim.Adam(self.parameters(), lr = self.lr)
 
 
 
 class VAE_l1_diag(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, bias = True):
+    def __init__(self, input_size, hidden_layer_size, z_size, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
         super(VAE_l1_diag, self).__init__(input_size, hidden_layer_size , z_size, bias = bias)
         
         # using .to(device) even against pytorch lightning recs 
@@ -161,9 +168,9 @@ def gumbel_keys(w, EPSILON):
 
 #equations 3 and 4 and 5
 # separate true is for debugging
-def continuous_topk(w, k, t, separate=False, EPSILON = EPSILON):
+def continuous_topk(w, k, t, device, separate=False, EPSILON = EPSILON):
     khot_list = []
-    onehot_approx = torch.zeros_like(w, dtype = torch.float32)
+    onehot_approx = torch.zeros_like(w, dtype = torch.float32, device = device)
     #print('w at start after adding gumbel noise')
     #print(w)
     for i in range(k):
@@ -221,7 +228,7 @@ def continuous_topk(w, k, t, separate=False, EPSILON = EPSILON):
 # separate true is for debugging
 # good default value of t looks lke 0.0001
 # but let the constructor of the VAE gumbel decide that
-def sample_subset(w, k, t, separate = False, EPSILON = EPSILON):
+def sample_subset(w, k, t, device, separate = False, EPSILON = EPSILON):
     '''
     Args:
         w (Tensor): Float Tensor of weights for each element. In gumbel mode
@@ -233,14 +240,14 @@ def sample_subset(w, k, t, separate = False, EPSILON = EPSILON):
     #print(w)
     assert EPSILON > 0
     w = gumbel_keys(w, EPSILON)
-    return continuous_topk(w, k, t, separate = separate, EPSILON = EPSILON)
+    return continuous_topk(w, k, t, device, separate = separate, EPSILON = EPSILON)
 
 
 
 # L1 VAE model we are loading
 class VAE_Gumbel(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True):
-        super(VAE_Gumbel, self).__init__(input_size, hidden_layer_size, z_size, bias = bias)
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
+        super(VAE_Gumbel, self).__init__(input_size, hidden_layer_size, z_size, bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
         
         self.k = k
         self.t = t
@@ -264,7 +271,7 @@ class VAE_Gumbel(VAE):
         
     def encode(self, x):
         w = self.weight_creator(x)
-        self.subset_indices = sample_subset(w, self.k, self.t)
+        self.subset_indices = sample_subset(w, self.k, self.t, device = self.device)
         x = x * self.subset_indices
         h1 = self.encoder(x)
         return self.enc_mean(h1), self.enc_logvar(h1)
@@ -272,15 +279,16 @@ class VAE_Gumbel(VAE):
     def training_epoch_end(self, training_step_outputs):
         self.t = max(0.001, self.t * self.temperature_decay)
 
-        loss = torch.stack(training_step_outputs).mean()
+        loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
         self.log("epoch_avg_train_loss", loss)
         return None
 
 
 # Not Instance_Wise Gumbel
 class VAE_Gumbel_NInsta(VAE_Gumbel):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, method = 'mean', bias = True):
-        super(VAE_Gumbel_NInsta, self).__init__(input_size, hidden_layer_size, z_size, k=k, t=t, temperature_decay = temperature_decay, bias = bias)
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, method = 'mean', bias = True, learning_rate = 0.000001, kl_beta = 0.1):
+        super(VAE_Gumbel_NInsta, self).__init__(input_size, hidden_layer_size, z_size, k=k, t=t, temperature_decay = temperature_decay, 
+                bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
         self.method = method
 
 
@@ -294,7 +302,7 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
         else:
             raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
 
-        self.subset_indices = sample_subset(w, self.k, self.t)
+        self.subset_indices = sample_subset(w, self.k, self.t, device = self.device)
         x = x * self.subset_indices
         h1 = self.encoder(x)
         return self.enc_mean(h1), self.enc_logvar(h1)
@@ -305,8 +313,8 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
 # that doesn't duplicate code
 class VAE_Gumbel_GlobalGate(VAE):
     # alpha is for  the exponential average
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True):
-        super(VAE_Gumbel_GlobalGate, self).__init__(input_size, hidden_layer_size, z_size, bias = bias)
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
+        super(VAE_Gumbel_GlobalGate, self).__init__(input_size, hidden_layer_size, z_size, bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
         
         self.k = k
         self.t = t
@@ -318,7 +326,7 @@ class VAE_Gumbel_GlobalGate(VAE):
 
     def encode(self, x):
 
-        subset_indices = sample_subset(self.logit_enc, self.k, self.t)
+        subset_indices = sample_subset(self.logit_enc, self.k, self.t, device = self.device)
 
         x = x * subset_indices
         h1 = self.encoder(x)
@@ -328,7 +336,7 @@ class VAE_Gumbel_GlobalGate(VAE):
     def training_epoch_end(self, training_step_outputs):
         self.t = max(0.001, self.t * self.temperature_decay)
 
-        loss = torch.stack(training_step_outputs).mean()
+        loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
         self.log("epoch_avg_train_loss", loss)
         return None
 
@@ -339,7 +347,7 @@ class VAE_Gumbel_GlobalGate(VAE):
             enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = data.shape[1]).sum(dim = 0)
 
             #subsets = sample_subset(w, model.k,model.t,True)
-            subsets = sample_subset(w, self.k,model.t)
+            subsets = sample_subset(w, self.k, self.t, device = self.device)
             #max_idx = torch.argmax(subsets, 1, keepdim=True)
             #one_hot = Tensor(subsets.shape)
             #one_hot.zero_()
@@ -357,20 +365,22 @@ class VAE_Gumbel_GlobalGate(VAE):
 # that doesn't duplicate code
 class VAE_Gumbel_RunningState(VAE_Gumbel):
     # alpha is for  the exponential average
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, method = 'mean', alpha = 0.9, bias = True):
-        super(VAE_Gumbel_RunningState, self).__init__(input_size, hidden_layer_size, z_size, k = k, t = t, temperature_decay = temperature_decay, bias = bias)
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, method = 'mean', alpha = 0.9, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
+        super(VAE_Gumbel_RunningState, self).__init__(input_size, hidden_layer_size, z_size, k = k, t = t, temperature_decay = temperature_decay,
+                bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
         self.method = method
 
         assert alpha < 1
         assert alpha > 0
 
+        # flat prior for the features
         self.logit_enc = torch.zeros(input_size, device = self.device)
 
         self.burned_in = False
         self.alpha = alpha
         
     # training_phase determined by training_step
-    def encode(self, x, training_phase=False)
+    def encode(self, x, training_phase=False):
         if training_phase:
             w = self.weight_creator(x)
 
@@ -381,21 +391,13 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
             else:
                 raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
 
-            self.logit_enc = (self.alpha) * self.logit_enc.detach() + (1-self.alpha) * pre_enc
-            #subset_indices = sample_subset(pre_enc, self.k, self.t)
-            # state_changed_loss = F.mse_loss(w, w_recon, reduction = 'sum')
-            if self.logit_enc is not None:
-                # repeat used here to avoid annoying warning
-                # don't use pre_enc here, since loss is spread and averaged.
-                
-                # otherwise have to keep track of a lot of gradients in the past # NOTE this applies for post burn in but detatch at every encoding because we don't now
-                # self.logit_enc = self.logit_enc.detach()
-            else: 
-                self.logit_enc = (1-self.alpha)*pre_enc
-                #self.logit_enc = pre_enc.detach()
-
-
-        subset_indices = sample_subset(self.logit_enc, self.k, self.t)
+            print('self logit')
+            print(self.logit_enc)
+            print('pre enc')
+            print(pre_enc)
+            self.logit_enc = (self.alpha) * self.logit_enc + (1-self.alpha) * pre_enc
+            
+        subset_indices = sample_subset(self.logit_enc, self.k, self.t, device = self.device)
 
         x = x * subset_indices
         h1 = self.encoder(x)
@@ -425,7 +427,7 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
             enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = data.shape[1]).sum(dim = 0)
             
             #subsets = sample_subset(w, model.k,model.t,True)
-            subsets = sample_subset(w, self.k,model.t)
+            subsets = sample_subset(w, self.k, self.t, device = self.device)
             #max_idx = torch.argmax(subsets, 1, keepdim=True)
             #one_hot = Tensor(subsets.shape)
             #one_hot.zero_()
@@ -444,9 +446,9 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
 # NMSL is Not My Selection Layer
 # Implementing reference paper
 class ConcreteVAE_NMSL(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
         # k because encoder actually uses k features as its input because of how concrete VAE picks it out
-        super(ConcreteVAE_NMSL, self).__init__(k, hidden_layer_size, z_size, output_size = input_size, bias = bias)
+        super(ConcreteVAE_NMSL, self).__init__(k, hidden_layer_size, z_size, output_size = input_size, bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
         
         self.k = k
         self.t = t
@@ -469,7 +471,7 @@ class ConcreteVAE_NMSL(VAE):
     def training_epoch_end(self, training_step_outputs):
         self.t = max(0.001, self.t * self.temperature_decay)
 
-        loss = torch.stack(training_step_outputs).mean()
+        loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
         self.log("epoch_avg_train_loss", loss)
         return None
 
