@@ -90,6 +90,7 @@ def make_gaussian_decoder(output_size, hidden_size, z_size, bias = True):
 class VAE(pl.LightningModule):
     def __init__(self, input_size, hidden_layer_size, z_size, output_size = None, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
         super(VAE, self).__init__()
+        self.save_hyperparameters()
 
         if output_size is None:
             output_size = input_size
@@ -145,6 +146,7 @@ class VAE(pl.LightningModule):
 class VAE_l1_diag(VAE):
     def __init__(self, input_size, hidden_layer_size, z_size, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
         super(VAE_l1_diag, self).__init__(input_size, hidden_layer_size , z_size, bias = bias)
+        self.save_hyperparameters()
         
         # using .to(device) even against pytorch lightning recs 
         # because cannot instantiate normal with it
@@ -248,6 +250,7 @@ def sample_subset(w, k, t, device, separate = False, EPSILON = EPSILON):
 class VAE_Gumbel(VAE):
     def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
         super(VAE_Gumbel, self).__init__(input_size, hidden_layer_size, z_size, bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
+        self.save_hyperparameters()
         
         self.k = k
         self.t = t
@@ -289,6 +292,7 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
     def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, method = 'mean', bias = True, learning_rate = 0.000001, kl_beta = 0.1):
         super(VAE_Gumbel_NInsta, self).__init__(input_size, hidden_layer_size, z_size, k=k, t=t, temperature_decay = temperature_decay, 
                 bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
+        self.save_hyperparameters()
         self.method = method
 
 
@@ -315,6 +319,7 @@ class VAE_Gumbel_GlobalGate(VAE):
     # alpha is for  the exponential average
     def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
         super(VAE_Gumbel_GlobalGate, self).__init__(input_size, hidden_layer_size, z_size, bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
+        self.save_hyperparameters()
         
         self.k = k
         self.t = t
@@ -368,6 +373,7 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
     def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, method = 'mean', alpha = 0.9, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
         super(VAE_Gumbel_RunningState, self).__init__(input_size, hidden_layer_size, z_size, k = k, t = t, temperature_decay = temperature_decay,
                 bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
+        self.save_hyperparameters()
         self.method = method
 
         assert alpha < 1
@@ -446,6 +452,7 @@ class ConcreteVAE_NMSL(VAE):
     def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
         # k because encoder actually uses k features as its input because of how concrete VAE picks it out
         super(ConcreteVAE_NMSL, self).__init__(k, hidden_layer_size, z_size, output_size = input_size, bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
+        self.save_hyperparameters()
         
         self.k = k
         self.t = t
