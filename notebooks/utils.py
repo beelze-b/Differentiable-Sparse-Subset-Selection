@@ -100,7 +100,7 @@ class VAE(pl.LightningModule):
 
         self.decoder, self.dec_logvar = make_gaussian_decoder(output_size, hidden_layer_size, z_size, bias = bias)
 
-        self.lr = learning_rate
+        self.learning_rate = learning_rate
         self.kl_beta = kl_beta
 
     def encode(self, x):
@@ -139,7 +139,7 @@ class VAE(pl.LightningModule):
 
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr = self.lr)
+        return torch.optim.Adam(self.parameters(), lr = self.learning_rate)
 
 
 
@@ -253,7 +253,7 @@ class VAE_Gumbel(VAE):
         self.save_hyperparameters()
         
         self.k = k
-        self.register_buffer('t', torch.Tensor(t))
+        self.register_buffer('t', torch.as_tensor(1.0 * t))
         self.temperature_decay = temperature_decay
         
         # end with more positive to make logit debugging easier
@@ -322,7 +322,7 @@ class VAE_Gumbel_GlobalGate(VAE):
         self.save_hyperparameters()
         
         self.k = k
-        self.register_buffer('t', torch.Tensor(t))
+        self.register_buffer('t', torch.as_tensor(1.0 * t))
         self.temperature_decay = temperature_decay
 
         self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size, device = self.device), torch.ones(input_size, device = self.device)).view(1, -1).requires_grad_(True))
@@ -455,7 +455,7 @@ class ConcreteVAE_NMSL(VAE):
         self.save_hyperparameters()
         
         self.k = k
-        self.register_buffer('t', torch.Tensor(t))
+        self.register_buffer('t', torch.as_tensor(1.0 * t))
         self.temperature_decay = temperature_decay
 
         self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size*k, device = self.device), torch.ones(input_size*k, device = self.device)).view(k, -1).requires_grad_(True))
