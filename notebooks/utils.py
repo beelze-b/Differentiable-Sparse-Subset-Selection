@@ -374,7 +374,8 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         assert alpha > 0
 
         # flat prior for the features
-        self.logit_enc = torch.zeros(input_size, device = self.device)
+        # need the view because of the way we encode
+        self.register_buffer('logit_enc', torch.zeros(input_size).view(1, -1))
 
         self.burned_in = False
         self.alpha = alpha
@@ -391,11 +392,7 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
             else:
                 raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
 
-            print('self logit')
-            print(self.logit_enc)
-            print('pre enc')
-            print(pre_enc)
-            self.logit_enc = (self.alpha) * self.logit_enc + (1-self.alpha) * pre_enc
+            self.logit_enc = (self.alpha) * self.logit_enc.detach() + (1-self.alpha) * pre_enc
             
         subset_indices = sample_subset(self.logit_enc, self.k, self.t, device = self.device)
 
