@@ -808,8 +808,8 @@ def save_model(trainer, base_path):
     trainer.save_checkpoint(base_path, weights_only = True)
 
 
-def train_save_model(model, train_data, val_data, base_path, gpus, max_epochs, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential'):
-    trainer = train_model(model, train_data, val_data, gpus, max_epochs, auto_lr = auto_lr, max_lr = max_lr, lr_explore_mode = lr_explore_mode)
+def train_save_model(model, train_data, val_data, base_path, gpus, min_epochs, max_epochs, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential'):
+    trainer = train_model(model, train_data, val_data, gpus, min_epochs = min_epochs, max_epochs = max_epochs, auto_lr = auto_lr, max_lr = max_lr, lr_explore_mode = lr_explore_mode)
     save_model(trainer, base_path)
 
 def load_model(module_class, checkpoint_path):
