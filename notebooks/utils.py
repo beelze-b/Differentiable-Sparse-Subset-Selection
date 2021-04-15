@@ -21,6 +21,11 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import confusion_matrix, accuracy_score, balanced_accuracy_score
 
+
+import umap
+import seaborn as sns
+import matplotlib.pyplot as plt
+
 log_interval = 20
 
 # rounding up lowest float32 on my system
@@ -134,8 +139,9 @@ class VAE(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        mu_x, logvar_x, mu_latent, logvar_latent = self(x)
-        loss = loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent, kl_beta = self.kl_beta) 
+        with torch.no_grad():
+            mu_x, logvar_x, mu_latent, logvar_latent = self(x)
+            loss = loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent, kl_beta = self.kl_beta) 
         self.log('val_loss', loss)
         return loss
 
@@ -767,10 +773,10 @@ def test_joint(df, model1, model2, epoch, batch_size):
 
 
 
-def train_model(model, train_dataloader, val_dataloader, gpus, max_epochs = 600, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential'):
+def train_model(model, train_dataloader, val_dataloader, gpus, min_epochs = 50, max_epochs = 600, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential'):
     assert max_epochs > 50
-    early_stopping_callback = EarlyStopping(monitor='val_loss', mode = 'min')
-    trainer = pl.Trainer(gpus = gpus, max_epochs = max_epochs, min_epochs=50, auto_lr_find=auto_lr, callbacks=[early_stopping_callback])
+    early_stopping_callback = EarlyStopping(monitor='val_loss', mode = 'min', patience = 5)
+    trainer = pl.Trainer(gpus = gpus, min_epochs = min_epochs, max_epochs = max_epochs, auto_lr_find=auto_lr, callbacks=[early_stopping_callback])
     if auto_lr:
         # for some reason plural val_dataloaders
         lr_finder = trainer.tuner.lr_find(model, train_dataloader = train_dataloader, val_dataloaders = val_dataloader, max_lr = max_lr, mode = lr_explore_mode)
@@ -939,15 +945,15 @@ def confusion_matrix_orig_recon(train_data, train_labels, test_data, test_labels
 
 ### graph
 
-def graph_umap_embedding(data, labels, title, encoder, num_classes):
-    assert encoder.classes_ == num_classes
+def graph_umap_embedding(data, labels, title, encoder):
+    num_classes = len(encoder.classes_)
     data = data.detach().cpu()
     embedding = umap.UMAP(n_neighbors=10, min_dist= 0.05).fit_transform(data)
     
     
     fig, ax = plt.subplots(1, figsize=(12, 8.5))
     
-    plt.scatter(*embedding.T, c = paul_encoder.transform(labels))
+    plt.scatter(*embedding.T, c = encoder.transform(labels))
     plt.setp(ax, xticks=[], yticks=[])
     
     cbar = plt.colorbar(ticks=np.arange(num_classes), boundaries = np.arange(num_classes) - 0.5)
