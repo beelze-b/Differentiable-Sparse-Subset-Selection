@@ -747,23 +747,25 @@ def test_joint(df, model1, model2, epoch, batch_size):
 
 
 
-def train_model(model, train_dataloader, val_dataloader, gpus, max_epochs = 600):
+def train_model(model, train_dataloader, val_dataloader, gpus, max_epochs = 600, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'linear'):
     assert max_epochs > 50
-    trainer = pl.Trainer(gpus = gpus, max_epochs = max_epochs, min_epochs=50, auto_lr_find=True)
-    lr_finder = trainer.tuner.lr_find(model, train_dataloader=train_dataloader, max_lr = 0.001)
+    trainer = pl.Trainer(gpus = gpus, max_epochs = max_epochs, min_epochs=50, auto_lr_find=auto_lr)
+    if auto_lr:
+        # for some reason plural val_dataloaders
+        lr_finder = trainer.tuner.lr_find(model, train_dataloader = train_dataloader, val_dataloaders = val_dataloader, max_lr = max_lr, mode = lr_explore_mode)
     
     
-    fig = lr_finder.plot(suggest=True)
-    fig.show()
+        fig = lr_finder.plot(suggest=True)
+        fig.show()
 
-    # Pick point based on plot, or get suggestion
-    new_lr = lr_finder.suggestion()
+        # Pick point based on plot, or get suggestion
+        new_lr = lr_finder.suggestion()
 
-    print("New Learning Rate {}".format(new_lr))
+        print("New Learning Rate {}".format(new_lr))
     
-    # update hparams of the model
-    model.hparams.lr = new_lr
-    model.lr = new_lr
+        # update hparams of the model
+        model.hparams.lr = new_lr
+        model.lr = new_lr
 
     trainer.fit(model, train_dataloader, val_dataloader)
     return trainer
@@ -779,8 +781,8 @@ def save_model(trainer, base_path):
     trainer.save_checkpoint(base_path, weights_only = True)
 
 
-def train_save_model(model, train_data, val_data, base_path, gpus, max_epochs):
-    trainer = train_model(model, train_data, val_data, gpus, max_epochs)
+def train_save_model(model, train_data, val_data, base_path, gpus, max_epochs, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'linear'):
+    trainer = train_model(model, train_data, val_data, gpus, max_epochs, auto_lr = auto_lr, max_lr = max_lr, lr_explore_mode = lr_explode_mode)
     save_model(trainer, base_path)
 
 def load_model(module_class, checkpoint_path):
