@@ -350,7 +350,7 @@ class VAE_Gumbel_GlobalGate(VAE):
         with torch.no_grad():
             w = self.logit_enc.clone().view(-1)
             top_k_logits = torch.topk(w, k = self.k, sorted = True)[1]
-            enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = data.shape[1]).sum(dim = 0)
+            enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = self.hparams.input_size).sum(dim = 0)
 
             #subsets = sample_subset(w, model.k,model.t,True)
             subsets = sample_subset(w, self.k, self.t, device = self.device)
@@ -428,7 +428,7 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         with torch.no_grad():
             w = self.logit_enc.clone().view(-1)
             top_k_logits = torch.topk(w, k = self.k, sorted = True)[1]
-            enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = data.shape[1]).sum(dim = 0)
+            enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = self.hparams.input_size).sum(dim = 0)
             
             #subsets = sample_subset(w, model.k,model.t,True)
             subsets = sample_subset(w, self.k, self.t, device = self.device)
@@ -495,7 +495,7 @@ class ConcreteVAE_NMSL(VAE):
             all_subsets = subset_indices.sum(dim = 0)
 
             inds = torch.argsort(subset_indices.sum(dim = 0), descending = True)[:model.k]
-            all_logits = torch.nn.functional.one_hot(inds, num_classes = data.shape[1]).sum(dim = 0)
+            all_logits = torch.nn.functional.one_hot(inds, num_classes = self.hparams.input_size).sum(dim = 0)
         
         return all_logits, all_subsets
 
