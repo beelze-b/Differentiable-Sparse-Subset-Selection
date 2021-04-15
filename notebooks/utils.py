@@ -9,6 +9,7 @@ from torch.nn import functional as F
 import os
 from torch.utils.data import DataLoader, random_split
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
 import math
 
@@ -747,9 +748,10 @@ def test_joint(df, model1, model2, epoch, batch_size):
 
 
 
-def train_model(model, train_dataloader, val_dataloader, gpus, max_epochs = 600, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'linear'):
+def train_model(model, train_dataloader, val_dataloader, gpus, max_epochs = 600, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential'):
     assert max_epochs > 50
-    trainer = pl.Trainer(gpus = gpus, max_epochs = max_epochs, min_epochs=50, auto_lr_find=auto_lr)
+    early_stopping_callback = EarlyStopping(monitor='val_loss', mode = 'min')
+    trainer = pl.Trainer(gpus = gpus, max_epochs = max_epochs, min_epochs=50, auto_lr_find=auto_lr, callbacks=[early_stopping_callback])
     if auto_lr:
         # for some reason plural val_dataloaders
         lr_finder = trainer.tuner.lr_find(model, train_dataloader = train_dataloader, val_dataloaders = val_dataloader, max_lr = max_lr, mode = lr_explore_mode)
@@ -781,8 +783,8 @@ def save_model(trainer, base_path):
     trainer.save_checkpoint(base_path, weights_only = True)
 
 
-def train_save_model(model, train_data, val_data, base_path, gpus, max_epochs, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'linear'):
-    trainer = train_model(model, train_data, val_data, gpus, max_epochs, auto_lr = auto_lr, max_lr = max_lr, lr_explore_mode = lr_explode_mode)
+def train_save_model(model, train_data, val_data, base_path, gpus, max_epochs, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential'):
+    trainer = train_model(model, train_data, val_data, gpus, max_epochs, auto_lr = auto_lr, max_lr = max_lr, lr_explore_mode = lr_explore_mode)
     save_model(trainer, base_path)
 
 def load_model(module_class, checkpoint_path):
