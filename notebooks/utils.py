@@ -88,7 +88,7 @@ def make_gaussian_decoder(output_size, hidden_size, z_size, bias = True):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, input_size, hidden_layer_size, z_size, output_size = None, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
+    def __init__(self, input_size, hidden_layer_size, z_size, output_size = None, bias = True, lr = 0.000001, kl_beta = 0.1):
         super(VAE, self).__init__()
         self.save_hyperparameters()
 
@@ -100,7 +100,7 @@ class VAE(pl.LightningModule):
 
         self.decoder, self.dec_logvar = make_gaussian_decoder(output_size, hidden_layer_size, z_size, bias = bias)
 
-        self.learning_rate = learning_rate
+        self.lr = lr
         self.kl_beta = kl_beta
 
     def encode(self, x):
@@ -139,12 +139,12 @@ class VAE(pl.LightningModule):
 
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr = self.learning_rate)
+        return torch.optim.Adam(self.parameters(), lr = self.lr)
 
 
 
 class VAE_l1_diag(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
+    def __init__(self, input_size, hidden_layer_size, z_size, bias = True, lr = 0.000001, kl_beta = 0.1):
         super(VAE_l1_diag, self).__init__(input_size, hidden_layer_size , z_size, bias = bias)
         self.save_hyperparameters()
         
@@ -248,8 +248,8 @@ def sample_subset(w, k, t, device, separate = False, EPSILON = EPSILON):
 
 # L1 VAE model we are loading
 class VAE_Gumbel(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
-        super(VAE_Gumbel, self).__init__(input_size, hidden_layer_size, z_size, bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, lr = 0.000001, kl_beta = 0.1):
+        super(VAE_Gumbel, self).__init__(input_size, hidden_layer_size, z_size, bias = bias, lr = lr, kl_beta = kl_beta)
         self.save_hyperparameters()
         
         self.k = k
@@ -289,9 +289,9 @@ class VAE_Gumbel(VAE):
 
 # Not Instance_Wise Gumbel
 class VAE_Gumbel_NInsta(VAE_Gumbel):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, method = 'mean', bias = True, learning_rate = 0.000001, kl_beta = 0.1):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, method = 'mean', bias = True, lr = 0.000001, kl_beta = 0.1):
         super(VAE_Gumbel_NInsta, self).__init__(input_size, hidden_layer_size, z_size, k=k, t=t, temperature_decay = temperature_decay, 
-                bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
+                bias = bias, lr = lr, kl_beta = kl_beta)
         self.save_hyperparameters()
         self.method = method
 
@@ -317,8 +317,8 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
 # that doesn't duplicate code
 class VAE_Gumbel_GlobalGate(VAE):
     # alpha is for  the exponential average
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
-        super(VAE_Gumbel_GlobalGate, self).__init__(input_size, hidden_layer_size, z_size, bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, lr = 0.000001, kl_beta = 0.1):
+        super(VAE_Gumbel_GlobalGate, self).__init__(input_size, hidden_layer_size, z_size, bias = bias, lr = lr, kl_beta = kl_beta)
         self.save_hyperparameters()
         
         self.k = k
@@ -370,9 +370,9 @@ class VAE_Gumbel_GlobalGate(VAE):
 # that doesn't duplicate code
 class VAE_Gumbel_RunningState(VAE_Gumbel):
     # alpha is for  the exponential average
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, method = 'mean', alpha = 0.9, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, method = 'mean', alpha = 0.9, bias = True, lr = 0.000001, kl_beta = 0.1):
         super(VAE_Gumbel_RunningState, self).__init__(input_size, hidden_layer_size, z_size, k = k, t = t, temperature_decay = temperature_decay,
-                bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
+                bias = bias, lr = lr, kl_beta = kl_beta)
         self.save_hyperparameters()
         self.method = method
 
@@ -449,9 +449,9 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
 # NMSL is Not My Selection Layer
 # Implementing reference paper
 class ConcreteVAE_NMSL(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, learning_rate = 0.000001, kl_beta = 0.1):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, lr = 0.000001, kl_beta = 0.1):
         # k because encoder actually uses k features as its input because of how concrete VAE picks it out
-        super(ConcreteVAE_NMSL, self).__init__(k, hidden_layer_size, z_size, output_size = input_size, bias = bias, learning_rate = learning_rate, kl_beta = kl_beta)
+        super(ConcreteVAE_NMSL, self).__init__(k, hidden_layer_size, z_size, output_size = input_size, bias = bias, lr = lr, kl_beta = kl_beta)
         self.save_hyperparameters()
         
         self.k = k
@@ -746,22 +746,29 @@ def test_joint(df, model1, model2, epoch, batch_size):
     return test_loss
 
 
-def train_model(model, train_dataloader, test_dataloader, gpus, max_epochs = 600):
+
+def train_model(model, train_dataloader, val_dataloader, gpus, max_epochs = 600):
+    assert max_epochs > 50
     trainer = pl.Trainer(gpus = gpus, max_epochs = max_epochs, min_epochs=50, auto_lr_find=True)
-    lr_finder = trainer.tuner.lr_find(model, train_dataloader=train_dataloader)
+    lr_finder = trainer.tuner.lr_find(model, train_dataloader=train_dataloader, max_lr = 0.001)
     
     
+    fig = lr_finder.plot(suggest=True)
+    fig.show()
+
     # Pick point based on plot, or get suggestion
     new_lr = lr_finder.suggestion()
+
+    print("New Learning Rate {}".format(new_lr))
     
     # update hparams of the model
-    model.hparams.learning_rate = new_lr
-    model.learning_rate = new_lr
+    model.hparams.lr = new_lr
+    model.lr = new_lr
 
     trainer.fit(model, train_dataloader, val_dataloader)
     return trainer
 
-def save_model(base_path, trainer):
+def save_model(trainer, base_path):
     # make directory
     if not os.path.exists(os.path.dirname(base_path)):
         try:
@@ -771,19 +778,22 @@ def save_model(base_path, trainer):
                 raise Exception("COULD NOT MAKE PATH")
     trainer.save_checkpoint(base_path, weights_only = True)
 
+
+def train_save_model(model, train_data, val_data, base_path, gpus, max_epochs):
+    trainer = train_model(model, train_data, val_data, gpus, max_epochs)
+    save_model(trainer, base_path)
+
+def load_model(module_class, checkpoint_path):
+    model = module_class.load_from_checkpoint(checkpoint_path)
+    return model
+
+
 def weights_init(m):
     if isinstance(m, nn.Linear):
         torch.nn.init.xavier_uniform_(m.weight)
         if m.bias is not None:
             torch.nn.init.zeros_(m.bias)
 
-def train_save_model(train_data, model, base_path):
-    trainer = train_model(train_data, model)
-    save_model(base_path, trainer)
-
-def load_model(module_class, checkpoint_path)
-    model = module_class.load_from_checkpoint(checkpoint_path)
-    return model
 
 
 ####### Wrappyer for pytorch lightining stuff
