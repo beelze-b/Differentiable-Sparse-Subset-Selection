@@ -361,6 +361,12 @@ class VAE_Gumbel_GlobalGate(VAE):
 
         return enc_top_logits, subsets
 
+    def markers(self):
+        logits = self.top_logits()
+        inds_global_gate = torch.argsort(logits[0], descending = True)[:self.k]
+
+        return inds_global_gate
+
 
     def set_burned_in(self):
         self.burned_in = True
@@ -439,6 +445,12 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         
         return enc_top_logits, subsets
 
+    def markers(self):
+        logits = self.top_logits()
+        inds_running_state = torch.argsort(logits[0], descending = True)[:self.k]
+
+        return inds_running_state
+
     def set_burned_in(self):
         self.eval()
         self.burned_in = True
@@ -494,10 +506,16 @@ class ConcreteVAE_NMSL(VAE):
 
             all_subsets = subset_indices.sum(dim = 0)
 
-            inds = torch.argsort(subset_indices.sum(dim = 0), descending = True)[:model.k]
+            inds = torch.argsort(subset_indices.sum(dim = 0), descending = True)[:self.k]
             all_logits = torch.nn.functional.one_hot(inds, num_classes = self.hparams.input_size).sum(dim = 0)
         
         return all_logits, all_subsets
+
+    def markers(self):
+        logits = self.top_logits()
+        inds_concrete = torch.argsort(logits[1], descending = True)[:self.k]
+
+        return inds_concrete
 
 def loss_function_per_autoencoder(x, recon_x, logvar_x, mu_latent, logvar_latent, kl_beta = 0.1):
     # loss_rec = F.binary_cross_entropy(recon_x, x, reduction='sum')
