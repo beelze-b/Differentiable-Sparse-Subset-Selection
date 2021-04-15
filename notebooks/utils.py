@@ -19,6 +19,7 @@ import random
 from sklearn.preprocessing import MinMaxScaler
 
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import confusion_matrix, accuracy_score, balanced_accuracy_score
 
 log_interval = 20
 
