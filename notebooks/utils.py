@@ -257,7 +257,7 @@ def sample_subset(w, k, t, device, separate = False, EPSILON = EPSILON):
 
 # L1 VAE model we are loading
 class VAE_Gumbel(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, lr = 0.000001, kl_beta = 0.1):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 2, temperature_decay = 0.9, bias = True, lr = 0.000001, kl_beta = 0.1):
         super(VAE_Gumbel, self).__init__(input_size, hidden_layer_size, z_size, bias = bias, lr = lr, kl_beta = kl_beta)
         self.save_hyperparameters()
         
@@ -289,7 +289,7 @@ class VAE_Gumbel(VAE):
         return self.enc_mean(h1), self.enc_logvar(h1)
 
     def training_epoch_end(self, training_step_outputs):
-        self.t = max(torch.as_tensor(0.01), self.t * self.temperature_decay)
+        self.t = max(torch.as_tensor(0.001), self.t * self.temperature_decay)
 
         loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
         self.log("epoch_avg_train_loss", loss)
@@ -348,7 +348,8 @@ class VAE_Gumbel_GlobalGate(VAE):
         return self.enc_mean(h1), self.enc_logvar(h1)
 
     def training_epoch_end(self, training_step_outputs):
-        self.t = max(0.001, self.t * self.temperature_decay)
+        self.t = max(torch.as_tensor(0.001), self.t * self.temperature_decay)
+
 
         loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
         self.log("epoch_avg_train_loss", loss)
@@ -494,7 +495,8 @@ class ConcreteVAE_NMSL(VAE):
         return self.enc_mean(h1), self.enc_logvar(h1)
 
     def training_epoch_end(self, training_step_outputs):
-        self.t = max(0.001, self.t * self.temperature_decay)
+        self.t = max(torch.as_tensor(0.001), self.t * self.temperature_decay)
+
 
         loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
         self.log("epoch_avg_train_loss", loss)
