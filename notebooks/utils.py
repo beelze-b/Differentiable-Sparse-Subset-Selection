@@ -36,7 +36,7 @@ def make_encoder(input_size, hidden_layer_size, z_size, bias = True):
 
     main_enc = nn.Sequential(
             nn.Linear(input_size, hidden_layer_size, bias = bias),
-            # nn.BatchNorm1d(1* hidden_layer_size),
+            nn.BatchNorm1d(1* hidden_layer_size),
             nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, hidden_layer_size, bias = bias),
             nn.BatchNorm1d(hidden_layer_size),
@@ -44,7 +44,6 @@ def make_encoder(input_size, hidden_layer_size, z_size, bias = True):
             nn.Linear(hidden_layer_size, hidden_layer_size, bias = bias),
             nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU()
-            #nn.BatchNorm1d(1*hidden_layer_size),
         )
 
     enc_mean = nn.Linear(hidden_layer_size, z_size, bias = bias)
@@ -75,10 +74,7 @@ def make_gaussian_decoder(output_size, hidden_size, z_size, bias = True):
     main_dec = nn.Sequential(
             nn.Linear(z_size, 1*hidden_size, bias = bias),
             nn.BatchNorm1d(hidden_size),
-            #nn.LeakyReLU(),
-            #nn.Linear(hidden_size, 2* hidden_size),
             nn.LeakyReLU(),
-            #nn.BatchNorm1d(1* hidden_size),
             nn.Linear(1*hidden_size, output_size, bias = bias),
             # just because predicting zeisel data is >= 0
             nn.LeakyReLU()
@@ -274,6 +270,7 @@ class VAE_Gumbel(VAE):
             nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, input_size),
             nn.LeakyReLU()
@@ -772,13 +769,13 @@ def test_joint(df, model1, model2, epoch, batch_size):
 
 
 
-def train_model(model, train_dataloader, val_dataloader, gpus, min_epochs = 50, max_epochs = 600, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential', early_stopping_patience=3):
+def train_model(model, train_dataloader, val_dataloader, gpus, min_epochs = 50, max_epochs = 600, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential', num_lr_rates = 100, early_stopping_patience=3):
     assert max_epochs > 50
     early_stopping_callback = EarlyStopping(monitor='val_loss', mode = 'min', patience = early_stopping_patience)
     trainer = pl.Trainer(gpus = gpus, min_epochs = min_epochs, max_epochs = max_epochs, auto_lr_find=auto_lr, callbacks=[early_stopping_callback])
     if auto_lr:
         # for some reason plural val_dataloaders
-        lr_finder = trainer.tuner.lr_find(model, train_dataloader = train_dataloader, val_dataloaders = val_dataloader, max_lr = max_lr, mode = lr_explore_mode)
+        lr_finder = trainer.tuner.lr_find(model, train_dataloader = train_dataloader, val_dataloaders = val_dataloader, max_lr = max_lr, mode = lr_explore_mode, num_training = num_lr_rates)
     
     
         fig = lr_finder.plot(suggest=True)
@@ -807,9 +804,9 @@ def save_model(trainer, base_path):
     trainer.save_checkpoint(base_path, weights_only = True)
 
 
-def train_save_model(model, train_data, val_data, base_path, gpus, min_epochs, max_epochs, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential', early_stopping_patience=3):
+def train_save_model(model, train_data, val_data, base_path, gpus, min_epochs, max_epochs, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential', early_stopping_patience=3, num_lr_rates = 100):
     trainer = train_model(model, train_data, val_data, gpus, min_epochs = min_epochs, max_epochs = max_epochs, auto_lr = auto_lr, max_lr = max_lr, lr_explore_mode = lr_explore_mode, 
-            early_stopping_patience=early_stopping_patience)
+            early_stopping_patience=early_stopping_patience, num_lr_rates = 100)
     save_model(trainer, base_path)
 
 def load_model(module_class, checkpoint_path):
