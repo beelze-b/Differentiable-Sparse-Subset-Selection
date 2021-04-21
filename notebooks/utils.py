@@ -42,7 +42,7 @@ def make_encoder(input_size, hidden_layer_size, z_size, bias = True):
             nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, hidden_layer_size, bias = bias),
-            nn.BatchNorm1d(hidden_layer_size),
+            # nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU()
         )
 
@@ -88,6 +88,11 @@ def make_gaussian_decoder(output_size, hidden_size, z_size, bias = True):
             )
     
     return main_dec, dec_logvar
+
+class GumbelClassifier(pl.LightningModule):
+    def __init__(self, input_size, hidden_layer_size, z_size, num_classes, bias = True, lr = 0.000001):
+        super(GumbelClassifier, self).__init__()
+        self.save_hyperparameters()
 
 
 class VAE(pl.LightningModule):
@@ -272,8 +277,8 @@ class VAE_Gumbel(VAE):
             nn.Linear(hidden_layer_size, hidden_layer_size),
             nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
-            nn.Linear(hidden_layer_size, input_size),
-            nn.LeakyReLU()
+            nn.Linear(hidden_layer_size, input_size)#,
+            #nn.LeakyReLU()
         )
         
     def encode(self, x):
