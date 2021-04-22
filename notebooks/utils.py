@@ -95,7 +95,7 @@ class GumbelClassifier(pl.LightningModule):
         self.save_hyperparameters()
 
 
-        self.encoder = = nn.Sequential(
+        self.encoder = nn.Sequential(
             nn.Linear(input_size, hidden_layer_size, bias = bias),
             nn.BatchNorm1d(1* hidden_layer_size),
             nn.LeakyReLU(),
@@ -112,11 +112,22 @@ class GumbelClassifier(pl.LightningModule):
 
 
         self.decoder = main_dec = nn.Sequential(
-            nn.Linear(z_size, 1*hidden_size, bias = bias),
-            nn.BatchNorm1d(hidden_size),
+            nn.Linear(z_size, 1*hidden_layer_size, bias = bias),
+            nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
-            nn.Linear(1*hidden_size, num_classes, bias = bias),
+            nn.Linear(1*hidden_layer_size, num_classes, bias = bias),
             nn.LogSoftmax()
+        )
+        
+        self.weight_creator = nn.Sequential(
+            nn.Linear(input_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, input_size)#,
+            #nn.LeakyReLU()
         )
 
         self.method = method
