@@ -90,9 +90,127 @@ def make_gaussian_decoder(output_size, hidden_size, z_size, bias = True):
     return main_dec, dec_logvar
 
 class GumbelClassifier(pl.LightningModule):
-    def __init__(self, input_size, hidden_layer_size, z_size, num_classes, bias = True, lr = 0.000001):
+    def __init__(self, input_size, hidden_layer_size, z_size, num_classes, k, t = 2, temperature_decay = 0.9, method = 'mean', alpha = 0.99, bias = True, lr = 0.000001):
         super(GumbelClassifier, self).__init__()
         self.save_hyperparameters()
+
+
+        self.encoder = = nn.Sequential(
+            nn.Linear(input_size, hidden_layer_size, bias = bias),
+            nn.BatchNorm1d(1* hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, hidden_layer_size, bias = bias),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, hidden_layer_size, bias = bias),
+            # nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, z_size, bias = True),
+            nn.BatchNorm1d(z_size),
+            nn.LeakyReLU()
+        )
+
+
+        self.decoder = main_dec = nn.Sequential(
+            nn.Linear(z_size, 1*hidden_size, bias = bias),
+            nn.BatchNorm1d(hidden_size),
+            nn.LeakyReLU(),
+            nn.Linear(1*hidden_size, num_classes, bias = bias),
+            nn.LogSoftmax()
+        )
+
+        self.method = method
+        self.k = k
+        self.t = t
+        self.temperature_decay = temperature_decay
+        self.lr = lr
+        self.bias = bias
+        self.num_classes = num_classes
+
+        assert alpha < 1
+        assert alpha > 0
+
+        # flat prior for the features
+        # need the view because of the way we encode
+        self.register_buffer('logit_enc', torch.zeros(input_size).view(1, -1))
+
+        self.alpha = alpha
+        self.loss_function = nn.NLLLoss()
+        
+    # training_phase determined by training_step
+    def encode(self, x, training_phase=False):
+        if training_phase:
+            w = self.weight_creator(x)
+
+            if self.method == 'mean':
+                pre_enc = w.mean(dim = 0).view(1, -1)
+            elif self.method == 'median':
+                pre_enc = w.median(dim = 0)[0].view(1, -1)
+            else:
+                raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
+
+            self.logit_enc = (self.alpha) * self.logit_enc.detach() + (1-self.alpha) * pre_enc
+            
+        gumbel = training_phase
+        subset_indices = sample_subset(self.logit_enc, self.k, self.t, gumbel = gumbel, device = self.device)
+
+        x = x * subset_indices
+        h1 = self.encoder(x)
+        # en
+        return h1
+
+    def forward(self, x, training_phase = False):
+        h = self.encode(x, training_phase = training_phase)
+        log_probs = self.decoder(h)
+
+        return log_probs
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        log_probs = self.forward(x, training_phase = True)
+        loss = self.loss_function(log_probs, y)
+        self.log('train_loss', loss)
+        return loss
+
+    def training_epoch_end(self, training_step_outputs):
+        self.t = max(torch.as_tensor(0.001), self.t * self.temperature_decay)
+
+
+        loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
+        self.log("epoch_avg_train_loss", loss)
+        return None
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        with torch.no_grad():
+            log_probs = self.forward(x, training_phase = False)
+            loss = self.loss_function(log_probs, y)
+        self.log('val_loss', loss)
+        return loss
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr = self.lr)
+
+    def top_logits(self):
+        with torch.no_grad():
+            w = self.logit_enc.clone().view(-1)
+            top_k_logits = torch.topk(w, k = self.k, sorted = True)[1]
+            enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = self.hparams.input_size).sum(dim = 0)
+            
+            #subsets = sample_subset(w, model.k,model.t,True)
+            subsets = sample_subset(w, self.k, self.t, device = self.device)
+            #max_idx = torch.argmax(subsets, 1, keepdim=True)
+            #one_hot = Tensor(subsets.shape)
+            #one_hot.zero_()
+            #one_hot.scatter_(1, max_idx, 1)
+        
+        return enc_top_logits, subsets
+
+    def markers(self):
+        logits = self.top_logits()
+        inds_running_state = torch.argsort(logits[0], descending = True)[:self.k]
+
+        return inds_running_state
 
 
 class VAE(pl.LightningModule):
@@ -239,7 +357,7 @@ def continuous_topk(w, k, t, device, separate=False, EPSILON = EPSILON):
 # separate true is for debugging
 # good default value of t looks lke 0.0001
 # but let the constructor of the VAE gumbel decide that
-def sample_subset(w, k, t, device, separate = False, EPSILON = EPSILON):
+def sample_subset(w, k, t, device, separate = False, gumbel = True, EPSILON = EPSILON):
     '''
     Args:
         w (Tensor): Float Tensor of weights for each element. In gumbel mode
@@ -250,7 +368,8 @@ def sample_subset(w, k, t, device, separate = False, EPSILON = EPSILON):
     #print('w before gumbel noise')
     #print(w)
     assert EPSILON > 0
-    w = gumbel_keys(w, EPSILON)
+    if gumbel:
+        w = gumbel_keys(w, EPSILON)
     return continuous_topk(w, k, t, device, separate = separate, EPSILON = EPSILON)
 
 
@@ -281,12 +400,27 @@ class VAE_Gumbel(VAE):
             #nn.LeakyReLU()
         )
         
-    def encode(self, x):
+    def encode(self, x, training_phase = False):
         w = self.weight_creator(x)
-        self.subset_indices = sample_subset(w, self.k, self.t, device = self.device)
+        self.subset_indices = sample_subset(w, self.k, self.t, gumbel = training_phase, device = self.device)
         x = x * self.subset_indices
         h1 = self.encoder(x)
         return self.enc_mean(h1), self.enc_logvar(h1)
+
+    def forward(self, x, training_phase = False):
+        mu_latent, logvar_latent = self.encode(x, training_phase = training_phase)
+        z = self.reparameterize(mu_latent, logvar_latent)
+        mu_x = self.decode(z)
+        logvar_x = self.dec_logvar(z)
+
+        return mu_x, logvar_x, mu_latent, logvar_latent
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        mu_x, logvar_x, mu_latent, logvar_latent = self.forward(x, training_phase = True)
+        loss = loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent, kl_beta = self.kl_beta) 
+        self.log('train_loss', loss)
+        return loss
 
     def training_epoch_end(self, training_step_outputs):
         self.t = max(torch.as_tensor(0.001), self.t * self.temperature_decay)
@@ -295,7 +429,7 @@ class VAE_Gumbel(VAE):
         self.log("epoch_avg_train_loss", loss)
         return None
 
-
+    
 # Not Instance_Wise Gumbel
 class VAE_Gumbel_NInsta(VAE_Gumbel):
     def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, method = 'mean', bias = True, lr = 0.000001, kl_beta = 0.1):
@@ -305,7 +439,7 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
         self.method = method
 
 
-    def encode(self, x):
+    def encode(self, x, training_phase = False):
         w0 = self.weight_creator(x)
 
         if self.method == 'mean':
@@ -315,7 +449,7 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
         else:
             raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
 
-        self.subset_indices = sample_subset(w, self.k, self.t, device = self.device)
+        self.subset_indices = sample_subset(w, self.k, self.t, gumbel = training_phase, device = self.device)
         x = x * self.subset_indices
         h1 = self.encoder(x)
         return self.enc_mean(h1), self.enc_logvar(h1)
@@ -338,18 +472,31 @@ class VAE_Gumbel_GlobalGate(VAE):
 
         self.burned_in = False
 
-    def encode(self, x):
-
-        subset_indices = sample_subset(self.logit_enc, self.k, self.t, device = self.device)
+    def encode(self, x, training_phase = False):
+        subset_indices = sample_subset(self.logit_enc, self.k, self.t, gumbel = training_phase, device = self.device)
 
         x = x * subset_indices
         h1 = self.encoder(x)
         # en
         return self.enc_mean(h1), self.enc_logvar(h1)
 
+    def forward(self, x, training_phase = False):
+        mu_latent, logvar_latent = self.encode(x, training_phase = training_phase)
+        z = self.reparameterize(mu_latent, logvar_latent)
+        mu_x = self.decode(z)
+        logvar_x = self.dec_logvar(z)
+
+        return mu_x, logvar_x, mu_latent, logvar_latent
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        mu_x, logvar_x, mu_latent, logvar_latent = self.forward(x, training_phase = True)
+        loss = loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent, kl_beta = self.kl_beta) 
+        self.log('train_loss', loss)
+        return loss
+
     def training_epoch_end(self, training_step_outputs):
         self.t = max(torch.as_tensor(0.001), self.t * self.temperature_decay)
-
 
         loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
         self.log("epoch_avg_train_loss", loss)
@@ -362,7 +509,7 @@ class VAE_Gumbel_GlobalGate(VAE):
             enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = self.hparams.input_size).sum(dim = 0)
 
             #subsets = sample_subset(w, model.k,model.t,True)
-            subsets = sample_subset(w, self.k, self.t, device = self.device)
+            subsets = sample_subset(w, self.k, self.t, gumbel = False, device = self.device)
             #max_idx = torch.argmax(subsets, 1, keepdim=True)
             #one_hot = Tensor(subsets.shape)
             #one_hot.zero_()
@@ -376,11 +523,7 @@ class VAE_Gumbel_GlobalGate(VAE):
 
         return inds_global_gate
 
-
-    def set_burned_in(self):
-        self.burned_in = True
-        # self.t = self.t / 10
-
+    
 # idea of having a Non Instance Wise Gumbel that also has a state to keep consistency across batches
 # probably some repetititon of code, but the issue is this class stuff, this is python 3 tho so it can be put into a good wrapper
 # that doesn't duplicate code
@@ -399,7 +542,6 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         # need the view because of the way we encode
         self.register_buffer('logit_enc', torch.zeros(input_size).view(1, -1))
 
-        self.burned_in = False
         self.alpha = alpha
         
     # training_phase determined by training_step
@@ -416,12 +558,63 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
 
             self.logit_enc = (self.alpha) * self.logit_enc.detach() + (1-self.alpha) * pre_enc
             
-        subset_indices = sample_subset(self.logit_enc, self.k, self.t, device = self.device)
+
+        gumbel = training_phase
+        subset_indices = sample_subset(self.logit_enc, self.k, self.t, gumbel = gumbel, device = self.device)
 
         x = x * subset_indices
         h1 = self.encoder(x)
         # en
         return self.enc_mean(h1), self.enc_logvar(h1) 
+
+    def top_logits(self):
+        with torch.no_grad():
+            w = self.logit_enc.clone().view(-1)
+            top_k_logits = torch.topk(w, k = self.k, sorted = True)[1]
+            enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = self.hparams.input_size).sum(dim = 0)
+            
+            #subsets = sample_subset(w, model.k,model.t,True)
+            subsets = sample_subset(w, self.k, self.t, gumbel = False, device = self.device)
+            #max_idx = torch.argmax(subsets, 1, keepdim=True)
+            #one_hot = Tensor(subsets.shape)
+            #one_hot.zero_()
+            #one_hot.scatter_(1, max_idx, 1)
+        
+        return enc_top_logits, subsets
+
+    def markers(self):
+        logits = self.top_logits()
+        inds_running_state = torch.argsort(logits[0], descending = True)[:self.k]
+
+        return inds_running_state
+
+    
+# NMSL is Not My Selection Layer
+# Implementing reference paper
+class ConcreteVAE_NMSL(VAE):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, lr = 0.000001, kl_beta = 0.1):
+        # k because encoder actually uses k features as its input because of how concrete VAE picks it out
+        super(ConcreteVAE_NMSL, self).__init__(k, hidden_layer_size, z_size, output_size = input_size, bias = bias, lr = lr, kl_beta = kl_beta)
+        self.save_hyperparameters()
+        
+        self.k = k
+        self.register_buffer('t', torch.as_tensor(1.0 * t))
+        self.temperature_decay = temperature_decay
+
+        self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size*k, device = self.device), torch.ones(input_size*k, device = self.device)).view(k, -1).requires_grad_(True))
+
+    def encode(self, x, training_phase = False):
+        if training_phase:
+            w = gumbel_keys(self.logit_enc, EPSILON = torch.finfo(torch.float32).eps)
+        w = torch.softmax(w/self.t, dim = -1)
+
+        # safe here because we do not use it in computation, only reference
+        self.subset_indices = w.clone().detach()
+
+        x = x.mm(w.transpose(0, 1))
+        h1 = self.encoder(x)
+        # en
+        return self.enc_mean(h1), self.enc_logvar(h1)
 
     def forward(self, x, training_phase = False):
         mu_latent, logvar_latent = self.encode(x, training_phase = training_phase)
@@ -437,62 +630,6 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         loss = loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent, kl_beta = self.kl_beta) 
         self.log('train_loss', loss)
         return loss
-
-
-    def top_logits(self):
-        with torch.no_grad():
-            w = self.logit_enc.clone().view(-1)
-            top_k_logits = torch.topk(w, k = self.k, sorted = True)[1]
-            enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = self.hparams.input_size).sum(dim = 0)
-            
-            #subsets = sample_subset(w, model.k,model.t,True)
-            subsets = sample_subset(w, self.k, self.t, device = self.device)
-            #max_idx = torch.argmax(subsets, 1, keepdim=True)
-            #one_hot = Tensor(subsets.shape)
-            #one_hot.zero_()
-            #one_hot.scatter_(1, max_idx, 1)
-        
-        return enc_top_logits, subsets
-
-    def markers(self):
-        logits = self.top_logits()
-        inds_running_state = torch.argsort(logits[0], descending = True)[:self.k]
-
-        return inds_running_state
-
-    def set_burned_in(self):
-        self.eval()
-        self.burned_in = True
-        # to make sure it saves
-        self.logit_enc = nn.Parameter(self.logit_enc, requires_grad = False)
-        # self.logit_enc = self.logit_enc.detach()
-        # self.t = self.t / 10
-
-# NMSL is Not My Selection Layer
-# Implementing reference paper
-class ConcreteVAE_NMSL(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, lr = 0.000001, kl_beta = 0.1):
-        # k because encoder actually uses k features as its input because of how concrete VAE picks it out
-        super(ConcreteVAE_NMSL, self).__init__(k, hidden_layer_size, z_size, output_size = input_size, bias = bias, lr = lr, kl_beta = kl_beta)
-        self.save_hyperparameters()
-        
-        self.k = k
-        self.register_buffer('t', torch.as_tensor(1.0 * t))
-        self.temperature_decay = temperature_decay
-
-        self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size*k, device = self.device), torch.ones(input_size*k, device = self.device)).view(k, -1).requires_grad_(True))
-
-    def encode(self, x):
-        w = gumbel_keys(self.logit_enc, EPSILON = torch.finfo(torch.float32).eps)
-        w = torch.softmax(w/self.t, dim = -1)
-
-        # safe here because we do not use it in computation, only reference
-        self.subset_indices = w.clone().detach()
-
-        x = x.mm(w.transpose(0, 1))
-        h1 = self.encoder(x)
-        # en
-        return self.enc_mean(h1), self.enc_logvar(h1)
 
     def training_epoch_end(self, training_step_outputs):
         self.t = max(torch.as_tensor(0.001), self.t * self.temperature_decay)
