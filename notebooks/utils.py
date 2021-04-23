@@ -116,7 +116,7 @@ class GumbelClassifier(pl.LightningModule):
             nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
             nn.Linear(1*hidden_layer_size, num_classes, bias = bias),
-            nn.LogSoftmax()
+            nn.LogSoftmax(dim = 1)
         )
         
         self.weight_creator = nn.Sequential(
