@@ -196,7 +196,9 @@ class GumbelClassifier(pl.LightningModule):
         with torch.no_grad():
             log_probs = self.forward(x, training_phase = False)
             loss = self.loss_function(log_probs, y)
+            acc = (y == log_probs.max(dim=1)[1]).float().mean()
         self.log('val_loss', loss)
+        self.log('val_acc', acc)
         return loss
 
     def configure_optimizers(self):
@@ -617,6 +619,9 @@ class ConcreteVAE_NMSL(VAE):
     def encode(self, x, training_phase = False):
         if training_phase:
             w = gumbel_keys(self.logit_enc, EPSILON = torch.finfo(torch.float32).eps)
+        else:
+            w = self.logit_enc
+
         w = torch.softmax(w/self.t, dim = -1)
 
         # safe here because we do not use it in computation, only reference
@@ -1001,7 +1006,7 @@ def average_cosine_angle(d1, d2):
 # accuracy per k
 # return both train and test
 # with markers and without
-def metrics_model(train_data, train_labels, test_data, test_labels, markers, model, k = None):
+def metrics_model(train_data, train_labels, test_data, test_labels, markers, model, k = None, recon = True):
     # if model is none don't do a confusion matrix for the model with markers
 
     classifier_orig = RandomForestClassifier(n_jobs = -1)
@@ -1011,29 +1016,39 @@ def metrics_model(train_data, train_labels, test_data, test_labels, markers, mod
     classifier_orig_markers.fit(train_data[:,markers].cpu(), train_labels)
     
 
-    classifier_recon = RandomForestClassifier(n_jobs = -1)
-    classifier_recon_markers = RandomForestClassifier(n_jobs = -1)
+    if recon:
+        classifier_recon = RandomForestClassifier(n_jobs = -1)
+        classifier_recon_markers = RandomForestClassifier(n_jobs = -1)
 
     with torch.no_grad():
-        train_data_recon = model(train_data)[0].cpu()
-        classifier_recon.fit(train_data_recon, train_labels)
-        classifier_recon_markers.fit(train_data_recon[:, markers], train_labels)
-
+        if recon:
+            train_data_recon = model(train_data)[0].cpu()
+            classifier_recon.fit(train_data_recon, train_labels)
+            classifier_recon_markers.fit(train_data_recon[:, markers], train_labels)
 
         bac_orig = balanced_accuracy_score(test_labels, classifier_orig.predict(test_data.cpu()))
         bac_orig_markers = balanced_accuracy_score(test_labels, classifier_orig_markers.predict(test_data[:, markers].cpu()))
-        bac_recon = balanced_accuracy_score(test_labels, classifier_recon.predict(model(test_data)[0].cpu()))
-        bac_recon_markers = balanced_accuracy_score(test_labels, classifier_recon_markers.predict(model(test_data)[0][:,markers].cpu()))
+
+        if recon:
+            bac_recon = balanced_accuracy_score(test_labels, classifier_recon.predict(model(test_data)[0].cpu()))
+            bac_recon_markers = balanced_accuracy_score(test_labels, classifier_recon_markers.predict(model(test_data)[0][:,markers].cpu()))
+        else:
+            bac_recon = 'Skipped'
+            bac_recon_markers = 'Skipped'
 
         accuracy_orig = accuracy_score(test_labels, classifier_orig.predict(test_data.cpu()))
         accuracy_orig_markers = accuracy_score(test_labels, classifier_orig_markers.predict(test_data[:, markers].cpu()))
-        accuracy_recon = accuracy_score(test_labels, classifier_recon.predict(model(test_data)[0].cpu()))
-        accuracy_recon_markers = accuracy_score(test_labels, classifier_recon_markers.predict(model(test_data)[0][:,markers].cpu()))
+        if recon:
+            accuracy_recon = accuracy_score(test_labels, classifier_recon.predict(model(test_data)[0].cpu()))
+            accuracy_recon_markers = accuracy_score(test_labels, classifier_recon_markers.predict(model(test_data)[0][:,markers].cpu()))
+            cos_angle_no_markers = average_cosine_angle(test_data, model(test_data)[0]).item()
+            cos_angle_markers = average_cosine_angle(test_data[:, markers], model(test_data)[0][:, markers]).item()
 
-
-        cos_angle_no_markers = average_cosine_angle(test_data, model(test_data)[0]).item()
-        cos_angle_markers = average_cosine_angle(test_data[:, markers], model(test_data)[0][:, markers]).item()
-
+        else:
+            accuracy_recon =  'Skipped'
+            accuracy_recon_markers = 'Skipped'
+            cos_angle_no_markers = 'Skipped'
+            cos_angle_markers = 'Skipped'
 
     return {'k': k, 
             'BAC Original Data': bac_orig, 'BAC Original Data Markers': bac_orig_markers, 'BAC Recon Data': bac_recon, 'BAC Recon Data Markers': bac_recon_markers,
@@ -1106,9 +1121,9 @@ def graph_umap_embedding(data, labels, title, encoder):
     fig, ax = plt.subplots(1, figsize=(12, 8.5))
     
     plt.scatter(*embedding.T, c = encoder.transform(labels))
-    plt.setp(ax, xticks=[], yticks=[])
+    # plt.setp(ax, xticks=[], yticks=[])
     
-    cbar = plt.colorbar(ticks=np.arange(num_classes), boundaries = np.arange(num_classes) - 0.5)
+    cbar = plt.colorbar(ticks=np.arange(num_classes))#, boundaries = np.arange(num_classes) - 0.5)
     cbar.ax.set_yticklabels(encoder.classes_)
     
     plt.title(title)
