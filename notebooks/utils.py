@@ -126,6 +126,9 @@ class GumbelClassifier(pl.LightningModule):
             nn.Linear(hidden_layer_size, hidden_layer_size),
             nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, input_size)#,
             #nn.LeakyReLU()
         )
@@ -404,6 +407,9 @@ class VAE_Gumbel(VAE):
         # (values between -1 and 10 for first output seem fine)
         self.weight_creator = nn.Sequential(
             nn.Linear(input_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, hidden_layer_size),
             nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, hidden_layer_size),
