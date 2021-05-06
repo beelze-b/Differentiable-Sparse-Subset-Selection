@@ -960,6 +960,7 @@ def train_model(model, train_dataloader, val_dataloader, gpus, min_epochs = 50, 
         model.hparams.lr = new_lr
         model.lr = new_lr
 
+    model.train()
     trainer.fit(model, train_dataloader, val_dataloader)
     return trainer
 
@@ -972,6 +973,7 @@ def save_model(trainer, base_path):
             if exc.errno != errno.EEXIST:
                 raise Exception("COULD NOT MAKE PATH")
     trainer.save_checkpoint(base_path, weights_only = True)
+
 
 
 def train_save_model(model, train_data, val_data, base_path, gpus, min_epochs, max_epochs, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential', early_stopping_patience=3, num_lr_rates = 100):
@@ -1161,6 +1163,42 @@ def quick_model_summary(model, train_data, test_data, threshold, batch_size):
     print(torch.sum(test_pred[0,:] != 0))
     print("# Non Sparse in Orig test")
     print(torch.sum(test_data[0,:] != 0))
+
+# given a n
+def split_data_into_dataloaders(X, y, train_size, val_size, batch_size = 64, seed = None):
+    assert train_size + val_size < 1
+    assert len(X) == len(y)
+    
+    if seed is not None:
+        np.random.seed(seed)
+
+    test_size = 1 - train_size - val_size
+
+    slices = np.random.permutation(np.arange(data.shape[0]))
+    train_end = int(train_size* len(data))
+    val_end = int((train_size + val_size)*len(data))
+    
+    train_x = X[slices[:train_end], :]
+    val_x = X[slices[train_end:val_end], :]
+    test_x = X[slices[val_end:], :]
+    
+    train_y = y[slices[:train_end]]
+    val_y = y[slices[train_end:val_end]]
+    test_y = y[slices[val_end:]]
+
+    train_x = torch.Tensor(train_x)
+    val_x = torch.Tensor(val_x)
+    test_x = torch.Tensor(test_x)
+
+    train_y = torch.LongTensor(train_y)
+    val_y = torch.LongTensor(val_y)
+    test_y = torch.LongTensor(test_y)
+
+    train_dataloader = DataLoader(torch.utils.data.TensorDataset(train_x, train_y), batch_size=batch_size, shuffle = True)
+    val_dataloader = DataLoader(torch.utils.data.TensorDataset(val_x, val_y), batch_size=batch_size, shuffle = False)
+    test_dataloader = DataLoader(torch.utils.data.TensorDataset(test_x, test_y), batch_size=batch_size, shuffle = False)
+
+    return train_dataloader, val_dataloader, test_dataloader
 
 
 def generate_synthetic_data_with_noise(N, z_size, D, D_noise = None):
