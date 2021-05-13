@@ -20,11 +20,15 @@ from sklearn.preprocessing import MinMaxScaler
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import confusion_matrix, accuracy_score, balanced_accuracy_score
+from sklearn.metrics import classification_report
 
 
 import umap
 import seaborn as sns
 import matplotlib.pyplot as plt
+
+
+import scanpy as sc
 
 log_interval = 20
 
@@ -42,9 +46,8 @@ def make_encoder(input_size, hidden_layer_size, z_size, bias = True):
             nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
             nn.Linear(hidden_layer_size, hidden_layer_size, bias = bias),
-            nn.BatchNorm1d(hidden_layer_size),
+            # nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU()
-            #nn.BatchNorm1d(1*hidden_layer_size),
         )
 
     enc_mean = nn.Linear(hidden_layer_size, z_size, bias = bias)
@@ -75,13 +78,8 @@ def make_gaussian_decoder(output_size, hidden_size, z_size, bias = True):
     main_dec = nn.Sequential(
             nn.Linear(z_size, 1*hidden_size, bias = bias),
             nn.BatchNorm1d(hidden_size),
-            #nn.LeakyReLU(),
-            #nn.Linear(hidden_size, 2* hidden_size),
             nn.LeakyReLU(),
-            #nn.BatchNorm1d(1* hidden_size),
             nn.Linear(1*hidden_size, output_size, bias = bias),
-            # just because predicting zeisel data is >= 0
-            nn.LeakyReLU()
         )
 
     dec_logvar = nn.Sequential(
@@ -92,6 +90,153 @@ def make_gaussian_decoder(output_size, hidden_size, z_size, bias = True):
             )
     
     return main_dec, dec_logvar
+
+class ExperimentIndices:
+    def __init__(self, train_indices, val_indices, test_indices):
+        pass
+
+
+
+class GumbelClassifier(pl.LightningModule):
+    def __init__(self, input_size, hidden_layer_size, z_size, num_classes, k, t = 2, temperature_decay = 0.9, method = 'mean', alpha = 0.99, bias = True, lr = 0.000001):
+        super(GumbelClassifier, self).__init__()
+        self.save_hyperparameters()
+
+
+        self.encoder = nn.Sequential(
+            nn.Linear(input_size, hidden_layer_size, bias = bias),
+            nn.BatchNorm1d(1* hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, hidden_layer_size, bias = bias),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, hidden_layer_size, bias = bias),
+            # nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, z_size, bias = True),
+            nn.BatchNorm1d(z_size),
+            nn.LeakyReLU()
+        )
+
+
+        self.decoder = main_dec = nn.Sequential(
+            nn.Linear(z_size, 1*hidden_layer_size, bias = bias),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(1*hidden_layer_size, num_classes, bias = bias),
+            nn.LogSoftmax(dim = 1)
+        )
+        
+        self.weight_creator = nn.Sequential(
+            nn.Linear(input_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Dropout(),
+            nn.Linear(hidden_layer_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Dropout(),
+            nn.Linear(hidden_layer_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, input_size)#,
+            #nn.LeakyReLU()
+        )
+
+        self.method = method
+        self.k = k
+        self.t = t
+        self.temperature_decay = temperature_decay
+        self.lr = lr
+        self.bias = bias
+        self.num_classes = num_classes
+
+        assert alpha < 1
+        assert alpha > 0
+
+        # flat prior for the features
+        # need the view because of the way we encode
+        self.register_buffer('logit_enc', torch.zeros(input_size).view(1, -1))
+
+        self.alpha = alpha
+        self.loss_function = nn.NLLLoss()
+        
+    # training_phase determined by training_step
+    def encode(self, x, training_phase=False):
+        if training_phase:
+            w = self.weight_creator(x)
+
+            if self.method == 'mean':
+                pre_enc = w.mean(dim = 0).view(1, -1)
+            elif self.method == 'median':
+                pre_enc = w.median(dim = 0)[0].view(1, -1)
+            else:
+                raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
+
+            self.logit_enc = (self.alpha) * self.logit_enc.detach() + (1-self.alpha) * pre_enc
+            
+        gumbel = training_phase
+        subset_indices = sample_subset(self.logit_enc, self.k, self.t, gumbel = gumbel, device = self.device)
+
+        x = x * subset_indices
+        h1 = self.encoder(x)
+        # en
+        return h1
+
+    def forward(self, x, training_phase = False):
+        h = self.encode(x, training_phase = training_phase)
+        log_probs = self.decoder(h)
+
+        return log_probs
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        log_probs = self.forward(x, training_phase = True)
+        loss = self.loss_function(log_probs, y)
+        self.log('train_loss', loss)
+        return loss
+
+    def training_epoch_end(self, training_step_outputs):
+        self.t = max(torch.as_tensor(0.001), self.t * self.temperature_decay)
+
+
+        loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
+        self.log("epoch_avg_train_loss", loss)
+        return None
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        with torch.no_grad():
+            log_probs = self.forward(x, training_phase = False)
+            loss = self.loss_function(log_probs, y)
+            acc = (y == log_probs.max(dim=1)[1]).float().mean()
+        self.log('val_loss', loss)
+        self.log('val_acc', acc)
+        return loss
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr = self.lr)
+
+    def top_logits(self):
+        with torch.no_grad():
+            w = self.logit_enc.clone().view(-1)
+            top_k_logits = torch.topk(w, k = self.k, sorted = True)[1]
+            enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = self.hparams.input_size).sum(dim = 0)
+            
+            #subsets = sample_subset(w, model.k,model.t,True)
+            subsets = sample_subset(w, self.k, self.t, device = self.device)
+            #max_idx = torch.argmax(subsets, 1, keepdim=True)
+            #one_hot = Tensor(subsets.shape)
+            #one_hot.zero_()
+            #one_hot.scatter_(1, max_idx, 1)
+        
+        return enc_top_logits, subsets
+
+    def markers(self):
+        logits = self.top_logits()
+        inds_running_state = torch.argsort(logits[0], descending = True)[:self.k]
+
+        return inds_running_state
 
 
 class VAE(pl.LightningModule):
@@ -238,7 +383,7 @@ def continuous_topk(w, k, t, device, separate=False, EPSILON = EPSILON):
 # separate true is for debugging
 # good default value of t looks lke 0.0001
 # but let the constructor of the VAE gumbel decide that
-def sample_subset(w, k, t, device, separate = False, EPSILON = EPSILON):
+def sample_subset(w, k, t, device, separate = False, gumbel = True, EPSILON = EPSILON):
     '''
     Args:
         w (Tensor): Float Tensor of weights for each element. In gumbel mode
@@ -249,14 +394,15 @@ def sample_subset(w, k, t, device, separate = False, EPSILON = EPSILON):
     #print('w before gumbel noise')
     #print(w)
     assert EPSILON > 0
-    w = gumbel_keys(w, EPSILON)
+    if gumbel:
+        w = gumbel_keys(w, EPSILON)
     return continuous_topk(w, k, t, device, separate = separate, EPSILON = EPSILON)
 
 
 
 # L1 VAE model we are loading
 class VAE_Gumbel(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, lr = 0.000001, kl_beta = 0.1):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 2, temperature_decay = 0.9, bias = True, lr = 0.000001, kl_beta = 0.1):
         super(VAE_Gumbel, self).__init__(input_size, hidden_layer_size, z_size, bias = bias, lr = lr, kl_beta = kl_beta)
         self.save_hyperparameters()
         
@@ -273,28 +419,48 @@ class VAE_Gumbel(VAE):
             nn.Linear(input_size, hidden_layer_size),
             nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
+            nn.Dropout(),
             nn.Linear(hidden_layer_size, hidden_layer_size),
             nn.BatchNorm1d(hidden_layer_size),
             nn.LeakyReLU(),
-            nn.Linear(hidden_layer_size, input_size),
-            nn.LeakyReLU()
+            nn.Dropout(),
+            nn.Linear(hidden_layer_size, hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_layer_size, input_size)#,
+            #nn.LeakyReLU()
         )
         
-    def encode(self, x):
+    def encode(self, x, training_phase = False):
         w = self.weight_creator(x)
-        self.subset_indices = sample_subset(w, self.k, self.t, device = self.device)
+        self.subset_indices = sample_subset(w, self.k, self.t, gumbel = training_phase, device = self.device)
         x = x * self.subset_indices
         h1 = self.encoder(x)
         return self.enc_mean(h1), self.enc_logvar(h1)
 
+    def forward(self, x, training_phase = False):
+        mu_latent, logvar_latent = self.encode(x, training_phase = training_phase)
+        z = self.reparameterize(mu_latent, logvar_latent)
+        mu_x = self.decode(z)
+        logvar_x = self.dec_logvar(z)
+
+        return mu_x, logvar_x, mu_latent, logvar_latent
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        mu_x, logvar_x, mu_latent, logvar_latent = self.forward(x, training_phase = True)
+        loss = loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent, kl_beta = self.kl_beta) 
+        self.log('train_loss', loss)
+        return loss
+
     def training_epoch_end(self, training_step_outputs):
-        self.t = max(0.001, self.t * self.temperature_decay)
+        self.t = max(torch.as_tensor(0.001), self.t * self.temperature_decay)
 
         loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
         self.log("epoch_avg_train_loss", loss)
         return None
 
-
+    
 # Not Instance_Wise Gumbel
 class VAE_Gumbel_NInsta(VAE_Gumbel):
     def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, method = 'mean', bias = True, lr = 0.000001, kl_beta = 0.1):
@@ -304,7 +470,7 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
         self.method = method
 
 
-    def encode(self, x):
+    def encode(self, x, training_phase = False):
         w0 = self.weight_creator(x)
 
         if self.method == 'mean':
@@ -314,7 +480,7 @@ class VAE_Gumbel_NInsta(VAE_Gumbel):
         else:
             raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
 
-        self.subset_indices = sample_subset(w, self.k, self.t, device = self.device)
+        self.subset_indices = sample_subset(w, self.k, self.t, gumbel = training_phase, device = self.device)
         x = x * self.subset_indices
         h1 = self.encoder(x)
         return self.enc_mean(h1), self.enc_logvar(h1)
@@ -337,17 +503,31 @@ class VAE_Gumbel_GlobalGate(VAE):
 
         self.burned_in = False
 
-    def encode(self, x):
-
-        subset_indices = sample_subset(self.logit_enc, self.k, self.t, device = self.device)
+    def encode(self, x, training_phase = False):
+        subset_indices = sample_subset(self.logit_enc, self.k, self.t, gumbel = training_phase, device = self.device)
 
         x = x * subset_indices
         h1 = self.encoder(x)
         # en
         return self.enc_mean(h1), self.enc_logvar(h1)
 
+    def forward(self, x, training_phase = False):
+        mu_latent, logvar_latent = self.encode(x, training_phase = training_phase)
+        z = self.reparameterize(mu_latent, logvar_latent)
+        mu_x = self.decode(z)
+        logvar_x = self.dec_logvar(z)
+
+        return mu_x, logvar_x, mu_latent, logvar_latent
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        mu_x, logvar_x, mu_latent, logvar_latent = self.forward(x, training_phase = True)
+        loss = loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent, kl_beta = self.kl_beta) 
+        self.log('train_loss', loss)
+        return loss
+
     def training_epoch_end(self, training_step_outputs):
-        self.t = max(0.001, self.t * self.temperature_decay)
+        self.t = max(torch.as_tensor(0.001), self.t * self.temperature_decay)
 
         loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
         self.log("epoch_avg_train_loss", loss)
@@ -360,7 +540,7 @@ class VAE_Gumbel_GlobalGate(VAE):
             enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = self.hparams.input_size).sum(dim = 0)
 
             #subsets = sample_subset(w, model.k,model.t,True)
-            subsets = sample_subset(w, self.k, self.t, device = self.device)
+            subsets = sample_subset(w, self.k, self.t, gumbel = False, device = self.device)
             #max_idx = torch.argmax(subsets, 1, keepdim=True)
             #one_hot = Tensor(subsets.shape)
             #one_hot.zero_()
@@ -374,11 +554,7 @@ class VAE_Gumbel_GlobalGate(VAE):
 
         return inds_global_gate
 
-
-    def set_burned_in(self):
-        self.burned_in = True
-        # self.t = self.t / 10
-
+    
 # idea of having a Non Instance Wise Gumbel that also has a state to keep consistency across batches
 # probably some repetititon of code, but the issue is this class stuff, this is python 3 tho so it can be put into a good wrapper
 # that doesn't duplicate code
@@ -397,7 +573,6 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         # need the view because of the way we encode
         self.register_buffer('logit_enc', torch.zeros(input_size).view(1, -1))
 
-        self.burned_in = False
         self.alpha = alpha
         
     # training_phase determined by training_step
@@ -414,12 +589,66 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
 
             self.logit_enc = (self.alpha) * self.logit_enc.detach() + (1-self.alpha) * pre_enc
             
-        subset_indices = sample_subset(self.logit_enc, self.k, self.t, device = self.device)
+
+        gumbel = training_phase
+        subset_indices = sample_subset(self.logit_enc, self.k, self.t, gumbel = gumbel, device = self.device)
 
         x = x * subset_indices
         h1 = self.encoder(x)
         # en
         return self.enc_mean(h1), self.enc_logvar(h1) 
+
+    def top_logits(self):
+        with torch.no_grad():
+            w = self.logit_enc.clone().view(-1)
+            top_k_logits = torch.topk(w, k = self.k, sorted = True)[1]
+            enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = self.hparams.input_size).sum(dim = 0)
+            
+            #subsets = sample_subset(w, model.k,model.t,True)
+            subsets = sample_subset(w, self.k, self.t, gumbel = False, device = self.device)
+            #max_idx = torch.argmax(subsets, 1, keepdim=True)
+            #one_hot = Tensor(subsets.shape)
+            #one_hot.zero_()
+            #one_hot.scatter_(1, max_idx, 1)
+        
+        return enc_top_logits, subsets
+
+    def markers(self):
+        logits = self.top_logits()
+        inds_running_state = torch.argsort(logits[0], descending = True)[:self.k]
+
+        return inds_running_state
+
+    
+# NMSL is Not My Selection Layer
+# Implementing reference paper
+class ConcreteVAE_NMSL(VAE):
+    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, lr = 0.000001, kl_beta = 0.1):
+        # k because encoder actually uses k features as its input because of how concrete VAE picks it out
+        super(ConcreteVAE_NMSL, self).__init__(k, hidden_layer_size, z_size, output_size = input_size, bias = bias, lr = lr, kl_beta = kl_beta)
+        self.save_hyperparameters()
+        
+        self.k = k
+        self.register_buffer('t', torch.as_tensor(1.0 * t))
+        self.temperature_decay = temperature_decay
+
+        self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size*k, device = self.device), torch.ones(input_size*k, device = self.device)).view(k, -1).requires_grad_(True))
+
+    def encode(self, x, training_phase = False):
+        if training_phase:
+            w = gumbel_keys(self.logit_enc, EPSILON = torch.finfo(torch.float32).eps)
+        else:
+            w = self.logit_enc
+
+        w = torch.softmax(w/self.t, dim = -1)
+
+        # safe here because we do not use it in computation, only reference
+        self.subset_indices = w.clone().detach()
+
+        x = x.mm(w.transpose(0, 1))
+        h1 = self.encoder(x)
+        # en
+        return self.enc_mean(h1), self.enc_logvar(h1)
 
     def forward(self, x, training_phase = False):
         mu_latent, logvar_latent = self.encode(x, training_phase = training_phase)
@@ -436,64 +665,9 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         self.log('train_loss', loss)
         return loss
 
-
-    def top_logits(self):
-        with torch.no_grad():
-            w = self.logit_enc.clone().view(-1)
-            top_k_logits = torch.topk(w, k = self.k, sorted = True)[1]
-            enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = self.hparams.input_size).sum(dim = 0)
-            
-            #subsets = sample_subset(w, model.k,model.t,True)
-            subsets = sample_subset(w, self.k, self.t, device = self.device)
-            #max_idx = torch.argmax(subsets, 1, keepdim=True)
-            #one_hot = Tensor(subsets.shape)
-            #one_hot.zero_()
-            #one_hot.scatter_(1, max_idx, 1)
-        
-        return enc_top_logits, subsets
-
-    def markers(self):
-        logits = self.top_logits()
-        inds_running_state = torch.argsort(logits[0], descending = True)[:self.k]
-
-        return inds_running_state
-
-    def set_burned_in(self):
-        self.eval()
-        self.burned_in = True
-        # to make sure it saves
-        self.logit_enc = nn.Parameter(self.logit_enc, requires_grad = False)
-        # self.logit_enc = self.logit_enc.detach()
-        # self.t = self.t / 10
-
-# NMSL is Not My Selection Layer
-# Implementing reference paper
-class ConcreteVAE_NMSL(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, lr = 0.000001, kl_beta = 0.1):
-        # k because encoder actually uses k features as its input because of how concrete VAE picks it out
-        super(ConcreteVAE_NMSL, self).__init__(k, hidden_layer_size, z_size, output_size = input_size, bias = bias, lr = lr, kl_beta = kl_beta)
-        self.save_hyperparameters()
-        
-        self.k = k
-        self.register_buffer('t', torch.as_tensor(1.0 * t))
-        self.temperature_decay = temperature_decay
-
-        self.logit_enc = nn.Parameter(torch.normal(torch.zeros(input_size*k, device = self.device), torch.ones(input_size*k, device = self.device)).view(k, -1).requires_grad_(True))
-
-    def encode(self, x):
-        w = gumbel_keys(self.logit_enc, EPSILON = torch.finfo(torch.float32).eps)
-        w = torch.softmax(w/self.t, dim = -1)
-
-        # safe here because we do not use it in computation, only reference
-        self.subset_indices = w.clone().detach()
-
-        x = x.mm(w.transpose(0, 1))
-        h1 = self.encoder(x)
-        # en
-        return self.enc_mean(h1), self.enc_logvar(h1)
-
     def training_epoch_end(self, training_step_outputs):
-        self.t = max(0.001, self.t * self.temperature_decay)
+        self.t = max(torch.as_tensor(0.001), self.t * self.temperature_decay)
+
 
         loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
         self.log("epoch_avg_train_loss", loss)
@@ -773,13 +947,13 @@ def test_joint(df, model1, model2, epoch, batch_size):
 
 
 
-def train_model(model, train_dataloader, val_dataloader, gpus, min_epochs = 50, max_epochs = 600, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential'):
+def train_model(model, train_dataloader, val_dataloader, gpus, min_epochs = 50, max_epochs = 600, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential', num_lr_rates = 100, early_stopping_patience=3):
     assert max_epochs > 50
-    early_stopping_callback = EarlyStopping(monitor='val_loss', mode = 'min', patience = 5)
+    early_stopping_callback = EarlyStopping(monitor='val_loss', mode = 'min', patience = early_stopping_patience)
     trainer = pl.Trainer(gpus = gpus, min_epochs = min_epochs, max_epochs = max_epochs, auto_lr_find=auto_lr, callbacks=[early_stopping_callback])
     if auto_lr:
         # for some reason plural val_dataloaders
-        lr_finder = trainer.tuner.lr_find(model, train_dataloader = train_dataloader, val_dataloaders = val_dataloader, max_lr = max_lr, mode = lr_explore_mode)
+        lr_finder = trainer.tuner.lr_find(model, train_dataloader = train_dataloader, val_dataloaders = val_dataloader, max_lr = max_lr, mode = lr_explore_mode, num_training = num_lr_rates)
     
     
         fig = lr_finder.plot(suggest=True)
@@ -794,6 +968,7 @@ def train_model(model, train_dataloader, val_dataloader, gpus, min_epochs = 50, 
         model.hparams.lr = new_lr
         model.lr = new_lr
 
+    model.train()
     trainer.fit(model, train_dataloader, val_dataloader)
     return trainer
 
@@ -808,8 +983,10 @@ def save_model(trainer, base_path):
     trainer.save_checkpoint(base_path, weights_only = True)
 
 
-def train_save_model(model, train_data, val_data, base_path, gpus, min_epochs, max_epochs, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential'):
-    trainer = train_model(model, train_data, val_data, gpus, min_epochs = min_epochs, max_epochs = max_epochs, auto_lr = auto_lr, max_lr = max_lr, lr_explore_mode = lr_explore_mode)
+
+def train_save_model(model, train_data, val_data, base_path, gpus, min_epochs, max_epochs, auto_lr = True, max_lr = 0.001, lr_explore_mode = 'exponential', early_stopping_patience=3, num_lr_rates = 100):
+    trainer = train_model(model, train_data, val_data, gpus, min_epochs = min_epochs, max_epochs = max_epochs, auto_lr = auto_lr, max_lr = max_lr, lr_explore_mode = lr_explore_mode, 
+            early_stopping_patience=early_stopping_patience, num_lr_rates = 100)
     save_model(trainer, base_path)
 
 def load_model(module_class, checkpoint_path):
@@ -849,7 +1026,7 @@ def average_cosine_angle(d1, d2):
 # accuracy per k
 # return both train and test
 # with markers and without
-def metrics_model(train_data, train_labels, test_data, test_labels, markers, model, k = None):
+def metrics_model(train_data, train_labels, test_data, test_labels, markers, model, k = None, recon = True):
     # if model is none don't do a confusion matrix for the model with markers
 
     classifier_orig = RandomForestClassifier(n_jobs = -1)
@@ -859,29 +1036,39 @@ def metrics_model(train_data, train_labels, test_data, test_labels, markers, mod
     classifier_orig_markers.fit(train_data[:,markers].cpu(), train_labels)
     
 
-    classifier_recon = RandomForestClassifier(n_jobs = -1)
-    classifier_recon_markers = RandomForestClassifier(n_jobs = -1)
+    if recon:
+        classifier_recon = RandomForestClassifier(n_jobs = -1)
+        classifier_recon_markers = RandomForestClassifier(n_jobs = -1)
 
     with torch.no_grad():
-        train_data_recon = model(train_data)[0].cpu()
-        classifier_recon.fit(train_data_recon, train_labels)
-        classifier_recon_markers.fit(train_data_recon[:, markers], train_labels)
-
+        if recon:
+            train_data_recon = model(train_data)[0].cpu()
+            classifier_recon.fit(train_data_recon, train_labels)
+            classifier_recon_markers.fit(train_data_recon[:, markers], train_labels)
 
         bac_orig = balanced_accuracy_score(test_labels, classifier_orig.predict(test_data.cpu()))
         bac_orig_markers = balanced_accuracy_score(test_labels, classifier_orig_markers.predict(test_data[:, markers].cpu()))
-        bac_recon = balanced_accuracy_score(test_labels, classifier_recon.predict(model(test_data)[0].cpu()))
-        bac_recon_markers = balanced_accuracy_score(test_labels, classifier_recon_markers.predict(model(test_data)[0][:,markers].cpu()))
+
+        if recon:
+            bac_recon = balanced_accuracy_score(test_labels, classifier_recon.predict(model(test_data)[0].cpu()))
+            bac_recon_markers = balanced_accuracy_score(test_labels, classifier_recon_markers.predict(model(test_data)[0][:,markers].cpu()))
+        else:
+            bac_recon = 'Skipped'
+            bac_recon_markers = 'Skipped'
 
         accuracy_orig = accuracy_score(test_labels, classifier_orig.predict(test_data.cpu()))
         accuracy_orig_markers = accuracy_score(test_labels, classifier_orig_markers.predict(test_data[:, markers].cpu()))
-        accuracy_recon = accuracy_score(test_labels, classifier_recon.predict(model(test_data)[0].cpu()))
-        accuracy_recon_markers = accuracy_score(test_labels, classifier_recon_markers.predict(model(test_data)[0][:,markers].cpu()))
+        if recon:
+            accuracy_recon = accuracy_score(test_labels, classifier_recon.predict(model(test_data)[0].cpu()))
+            accuracy_recon_markers = accuracy_score(test_labels, classifier_recon_markers.predict(model(test_data)[0][:,markers].cpu()))
+            cos_angle_no_markers = average_cosine_angle(test_data, model(test_data)[0]).item()
+            cos_angle_markers = average_cosine_angle(test_data[:, markers], model(test_data)[0][:, markers]).item()
 
-
-        cos_angle_no_markers = average_cosine_angle(test_data, model(test_data)[0]).item()
-        cos_angle_markers = average_cosine_angle(test_data[:, markers], model(test_data)[0][:, markers]).item()
-
+        else:
+            accuracy_recon =  'Skipped'
+            accuracy_recon_markers = 'Skipped'
+            cos_angle_no_markers = 'Skipped'
+            cos_angle_markers = 'Skipped'
 
     return {'k': k, 
             'BAC Original Data': bac_orig, 'BAC Original Data Markers': bac_orig_markers, 'BAC Recon Data': bac_recon, 'BAC Recon Data Markers': bac_recon_markers,
@@ -940,6 +1127,52 @@ def confusion_matrix_orig_recon(train_data, train_labels, test_data, test_labels
     print(cm_recon_markers)
     print("Accuracy {}".format(accuracy_recon_markers))
 
+
+# new set of functions from wrapping everything up
+
+def new_model_metrics(train_x, train_y, test_x, test_y, markers = None):
+    if markers is not None:
+        train_x = train_x[:, markers]
+        test_x = test_x[:, markers]
+
+    model = RandomForestClassifier()
+    model.fit(train_x, train_y)
+    pred_y = model.predict(test_x)
+    train_rep = classification_report(train_y, model.predict(train_x), output_dict=True)
+    test_rep = classification_report(test_y, pred_y, output_dict=True)
+    cm = confusion_matrix(test_y, pred_y)
+    misclass_rate = 1 - accuracy_score(test_y, pred_y)
+    return misclass_rate, test_rep, cm
+
+
+def visualize_save_embedding(X, y, encoder, title, path, markers = None):
+    if markers is not None:
+        X = X[:, markers]
+    num_classes = len(encoder.classes_)
+    embedding = umap.UMAP(n_neighbors=10, min_dist= 0.05).fit_transform(X)
+    
+    
+    fig, ax = plt.subplots(1, figsize=(12, 8.5))
+    
+    plt.scatter(*embedding.T, c = y)
+    # plt.setp(ax, xticks=[], yticks=[])
+    
+    cbar = plt.colorbar(ticks=np.arange(num_classes))#, boundaries = np.arange(num_classes) - 0.5)
+    cbar.ax.set_yticklabels(encoder.classes_)
+    
+    plt.title(title)
+    plt.savefig(path)
+    plt.show()
+
+def model_variances(path, tries):
+    misclass_arr = []
+    weight_f1_arr = []
+    for tryy in range(1, tries + 1):
+        results = np.load(path.format(tryy), allow_pickle = True)
+        misclass_arr.append(results[0])
+        weight_f1_arr.append(results[1]['weighted avg']['f1-score'])
+    return np.mean(misclass_arr), np.mean(weight_f1_arr), np.std(misclass_arr), np.std(weight_f1_arr)
+
 #######
 
 
@@ -947,16 +1180,15 @@ def confusion_matrix_orig_recon(train_data, train_labels, test_data, test_labels
 
 def graph_umap_embedding(data, labels, title, encoder):
     num_classes = len(encoder.classes_)
-    data = data.detach().cpu()
     embedding = umap.UMAP(n_neighbors=10, min_dist= 0.05).fit_transform(data)
     
     
     fig, ax = plt.subplots(1, figsize=(12, 8.5))
     
     plt.scatter(*embedding.T, c = encoder.transform(labels))
-    plt.setp(ax, xticks=[], yticks=[])
+    # plt.setp(ax, xticks=[], yticks=[])
     
-    cbar = plt.colorbar(ticks=np.arange(num_classes), boundaries = np.arange(num_classes) - 0.5)
+    cbar = plt.colorbar(ticks=np.arange(num_classes))#, boundaries = np.arange(num_classes) - 0.5)
     cbar.ax.set_yticklabels(encoder.classes_)
     
     plt.title(title)
@@ -984,6 +1216,73 @@ def quick_model_summary(model, train_data, test_data, threshold, batch_size):
     print(torch.sum(test_pred[0,:] != 0))
     print("# Non Sparse in Orig test")
     print(torch.sum(test_data[0,:] != 0))
+
+# X can be a numpy array 
+def process_data(X, filter_data = False):
+    adata = sc.AnnData(X)
+
+    if filter_data:
+        adata = adata[adata.obs.n_genes_by_counts < 2500, :]
+        adata = adata[adata.obs.pct_counts_mt < 5, :]
+
+
+    adata.layers["counts"] = np.asarray(adata.X)
+
+    # normilise and save the data into the layer
+    sc.pp.normalize_total(adata, counts_per_cell_after=1e4)
+    adata.layers["norm"] = np.asarray(adata.X).copy()
+
+    # logarithmise and save the data into the layer
+    sc.pp.log1p(adata)
+    adata.layers["log"] = np.asarray(adata.X.copy())
+    # save in adata.raw.X normilise and logarithm data
+    adata.raw = adata.copy()
+
+    sc.pp.scale(adata, max_value=10)
+    adata.layers["scale"] = np.asarray(adata.X.copy())
+
+    return np.assarray(aData.X.copy())
+
+# given a n
+# num_workers=0 means load in main process
+def split_data_into_dataloaders(X, y, train_size, val_size, batch_size = 64, num_workers = 0, seed = None):
+    assert train_size + val_size < 1
+    assert len(X) == len(y)
+    
+    if seed is not None:
+        np.random.seed(seed)
+
+    test_size = 1 - train_size - val_size
+
+    slices = np.random.permutation(np.arange(X.shape[0]))
+    train_end = int(train_size* len(X))
+    val_end = int((train_size + val_size)*len(X))
+
+    train_indices = slices[:train_end]
+    val_indices = slices[train_end:val_end] 
+    test_indices = slices[val_end:]
+    
+    train_x = X[train_indices, :]
+    val_x = X[val_indices, :]
+    test_x = X[test_indices, :]
+    
+    train_y = y[train_indices]
+    val_y = y[val_indices]
+    test_y = y[test_indices]
+
+    train_x = torch.Tensor(train_x)
+    val_x = torch.Tensor(val_x)
+    test_x = torch.Tensor(test_x)
+
+    train_y = torch.LongTensor(train_y)
+    val_y = torch.LongTensor(val_y)
+    test_y = torch.LongTensor(test_y)
+
+    train_dataloader = DataLoader(torch.utils.data.TensorDataset(train_x, train_y), batch_size=batch_size, shuffle = True, num_workers = num_workers)
+    val_dataloader = DataLoader(torch.utils.data.TensorDataset(val_x, val_y), batch_size=batch_size, shuffle = False, num_workers = num_workers)
+    test_dataloader = DataLoader(torch.utils.data.TensorDataset(test_x, test_y), batch_size=batch_size, shuffle = False, num_workers = num_workers)
+
+    return train_dataloader, val_dataloader, test_dataloader, train_indices, val_indices, test_indices
 
 
 def generate_synthetic_data_with_noise(N, z_size, D, D_noise = None):
