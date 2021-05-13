@@ -20,11 +20,15 @@ from sklearn.preprocessing import MinMaxScaler
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import confusion_matrix, accuracy_score, balanced_accuracy_score
+from sklearn.metrics import classification_report
 
 
 import umap
 import seaborn as sns
 import matplotlib.pyplot as plt
+
+
+import scanpy as sc
 
 log_interval = 20
 
@@ -76,8 +80,6 @@ def make_gaussian_decoder(output_size, hidden_size, z_size, bias = True):
             nn.BatchNorm1d(hidden_size),
             nn.LeakyReLU(),
             nn.Linear(1*hidden_size, output_size, bias = bias),
-            # just because predicting zeisel data is >= 0
-            nn.LeakyReLU()
         )
 
     dec_logvar = nn.Sequential(
@@ -88,6 +90,12 @@ def make_gaussian_decoder(output_size, hidden_size, z_size, bias = True):
             )
     
     return main_dec, dec_logvar
+
+class ExperimentIndices:
+    def __init__(self, train_indices, val_indices, test_indices):
+        pass
+
+
 
 class GumbelClassifier(pl.LightningModule):
     def __init__(self, input_size, hidden_layer_size, z_size, num_classes, k, t = 2, temperature_decay = 0.9, method = 'mean', alpha = 0.99, bias = True, lr = 0.000001):
@@ -1119,6 +1127,52 @@ def confusion_matrix_orig_recon(train_data, train_labels, test_data, test_labels
     print(cm_recon_markers)
     print("Accuracy {}".format(accuracy_recon_markers))
 
+
+# new set of functions from wrapping everything up
+
+def new_model_metrics(train_x, train_y, test_x, test_y, markers = None):
+    if markers is not None:
+        train_x = train_x[:, markers]
+        test_x = test_x[:, markers]
+
+    model = RandomForestClassifier()
+    model.fit(train_x, train_y)
+    pred_y = model.predict(test_x)
+    train_rep = classification_report(train_y, model.predict(train_x), output_dict=True)
+    test_rep = classification_report(test_y, pred_y, output_dict=True)
+    cm = confusion_matrix(test_y, pred_y)
+    misclass_rate = 1 - accuracy_score(test_y, pred_y)
+    return misclass_rate, test_rep, cm
+
+
+def visualize_save_embedding(X, y, encoder, title, path, markers = None):
+    if markers is not None:
+        X = X[:, markers]
+    num_classes = len(encoder.classes_)
+    embedding = umap.UMAP(n_neighbors=10, min_dist= 0.05).fit_transform(X)
+    
+    
+    fig, ax = plt.subplots(1, figsize=(12, 8.5))
+    
+    plt.scatter(*embedding.T, c = y)
+    # plt.setp(ax, xticks=[], yticks=[])
+    
+    cbar = plt.colorbar(ticks=np.arange(num_classes))#, boundaries = np.arange(num_classes) - 0.5)
+    cbar.ax.set_yticklabels(encoder.classes_)
+    
+    plt.title(title)
+    plt.savefig(path)
+    plt.show()
+
+def model_variances(path, tries):
+    misclass_arr = []
+    weight_f1_arr = []
+    for tryy in range(1, tries + 1):
+        results = np.load(path.format(tryy), allow_pickle = True)
+        misclass_arr.append(results[0])
+        weight_f1_arr.append(results[1]['weighted avg']['f1-score'])
+    return np.mean(misclass_arr), np.mean(weight_f1_arr), np.std(misclass_arr), np.std(weight_f1_arr)
+
 #######
 
 
@@ -1126,7 +1180,6 @@ def confusion_matrix_orig_recon(train_data, train_labels, test_data, test_labels
 
 def graph_umap_embedding(data, labels, title, encoder):
     num_classes = len(encoder.classes_)
-    data = data.detach().cpu()
     embedding = umap.UMAP(n_neighbors=10, min_dist= 0.05).fit_transform(data)
     
     
@@ -1164,8 +1217,35 @@ def quick_model_summary(model, train_data, test_data, threshold, batch_size):
     print("# Non Sparse in Orig test")
     print(torch.sum(test_data[0,:] != 0))
 
+# X can be a numpy array 
+def process_data(X, filter_data = False):
+    adata = sc.AnnData(X)
+
+    if filter_data:
+        adata = adata[adata.obs.n_genes_by_counts < 2500, :]
+        adata = adata[adata.obs.pct_counts_mt < 5, :]
+
+
+    adata.layers["counts"] = np.asarray(adata.X)
+
+    # normilise and save the data into the layer
+    sc.pp.normalize_total(adata, counts_per_cell_after=1e4)
+    adata.layers["norm"] = np.asarray(adata.X).copy()
+
+    # logarithmise and save the data into the layer
+    sc.pp.log1p(adata)
+    adata.layers["log"] = np.asarray(adata.X.copy())
+    # save in adata.raw.X normilise and logarithm data
+    adata.raw = adata.copy()
+
+    sc.pp.scale(adata, max_value=10)
+    adata.layers["scale"] = np.asarray(adata.X.copy())
+
+    return np.assarray(aData.X.copy())
+
 # given a n
-def split_data_into_dataloaders(X, y, train_size, val_size, batch_size = 64, seed = None):
+# num_workers=0 means load in main process
+def split_data_into_dataloaders(X, y, train_size, val_size, batch_size = 64, num_workers = 0, seed = None):
     assert train_size + val_size < 1
     assert len(X) == len(y)
     
@@ -1174,17 +1254,21 @@ def split_data_into_dataloaders(X, y, train_size, val_size, batch_size = 64, see
 
     test_size = 1 - train_size - val_size
 
-    slices = np.random.permutation(np.arange(data.shape[0]))
-    train_end = int(train_size* len(data))
-    val_end = int((train_size + val_size)*len(data))
+    slices = np.random.permutation(np.arange(X.shape[0]))
+    train_end = int(train_size* len(X))
+    val_end = int((train_size + val_size)*len(X))
+
+    train_indices = slices[:train_end]
+    val_indices = slices[train_end:val_end] 
+    test_indices = slices[val_end:]
     
-    train_x = X[slices[:train_end], :]
-    val_x = X[slices[train_end:val_end], :]
-    test_x = X[slices[val_end:], :]
+    train_x = X[train_indices, :]
+    val_x = X[val_indices, :]
+    test_x = X[test_indices, :]
     
-    train_y = y[slices[:train_end]]
-    val_y = y[slices[train_end:val_end]]
-    test_y = y[slices[val_end:]]
+    train_y = y[train_indices]
+    val_y = y[val_indices]
+    test_y = y[test_indices]
 
     train_x = torch.Tensor(train_x)
     val_x = torch.Tensor(val_x)
@@ -1194,11 +1278,11 @@ def split_data_into_dataloaders(X, y, train_size, val_size, batch_size = 64, see
     val_y = torch.LongTensor(val_y)
     test_y = torch.LongTensor(test_y)
 
-    train_dataloader = DataLoader(torch.utils.data.TensorDataset(train_x, train_y), batch_size=batch_size, shuffle = True)
-    val_dataloader = DataLoader(torch.utils.data.TensorDataset(val_x, val_y), batch_size=batch_size, shuffle = False)
-    test_dataloader = DataLoader(torch.utils.data.TensorDataset(test_x, test_y), batch_size=batch_size, shuffle = False)
+    train_dataloader = DataLoader(torch.utils.data.TensorDataset(train_x, train_y), batch_size=batch_size, shuffle = True, num_workers = num_workers)
+    val_dataloader = DataLoader(torch.utils.data.TensorDataset(val_x, val_y), batch_size=batch_size, shuffle = False, num_workers = num_workers)
+    test_dataloader = DataLoader(torch.utils.data.TensorDataset(test_x, test_y), batch_size=batch_size, shuffle = False, num_workers = num_workers)
 
-    return train_dataloader, val_dataloader, test_dataloader
+    return train_dataloader, val_dataloader, test_dataloader, train_indices, val_indices, test_indices
 
 
 def generate_synthetic_data_with_noise(N, z_size, D, D_noise = None):
